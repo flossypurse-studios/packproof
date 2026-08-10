@@ -192,6 +192,7 @@ npm i -D packproof</pre>
     <tr><td><code>--keep</code></td><td class="desc">keep the clean room and print its path, so you can go poke at it yourself</td></tr>
     <tr><td><code>--ignore-scripts</code></td><td class="desc">install with <code>--ignore-scripts</code> (packproof otherwise runs your postinstall, like a user would)</td></tr>
     <tr><td><code>--skip-require</code></td><td class="desc">only probe ESM <code>import</code>, not <code>require()</code></td></tr>
+    <tr><td><code>--lazy</code></td><td class="desc">also read back every shipped <code>.js</code>/<code>.mjs</code>/<code>.cjs</code> file and check the imports that never execute</td></tr>
     <tr><td><code>--bin-args &lt;args&gt;</code></td><td class="desc">args passed to each bin (default <code>--version</code>)</td></tr>
   </table>
 
@@ -208,11 +209,12 @@ npm i -D packproof</pre>
   <p><a href="https://publint.dev">publint</a> statically lints your published manifest: module formats, <code class="inline-code">exports</code> correctness, file extensions, shebangs, deprecated fields. It's excellent, fast, needs no install, and it covers whole categories of correctness packproof never looks at.</p>
   <p>packproof doesn't read your manifest for opinions. It installs your package and runs it — which catches the class of bug static analysis structurally cannot see: whether the code, at runtime, reaches for something that isn't there. A devDependency imported three files deep behind a conditional isn't a manifest problem. It's a fact about execution.</p>
   <p class="muted">publint answers <em>"is this package declared correctly?"</em> packproof answers <em>"does this package work once installed?"</em> Run <code class="inline-code">publint &amp;&amp; packproof</code>.</p>
+  <p>And there's one gap neither of those closes on its own: a devDependency <code class="inline-code">require()</code>d only inside a function body passes <code class="inline-code">npm pack</code>, passes <code class="inline-code">npm install</code>, passes publint, and passes packproof's own execution checks — no probe ever runs that line, so no probe can notice. <code class="inline-code">packproof --lazy</code> reads the shipped source and catches it.</p>
 </section>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls won't be caught — nothing short of your own tests can fix that. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. No workspace/monorepo awareness yet — point it at one package at a time.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. No workspace/monorepo awareness yet — point it at one package at a time.</p>
 </section>
 
 </div>
