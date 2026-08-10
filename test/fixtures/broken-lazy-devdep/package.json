@@ -1,0 +1,8 @@
+{
+  "name": "pp-fixture-broken-lazy-devdep",
+  "version": "1.0.0",
+  "main": "index.js",
+  "files": ["index.js"],
+  "private": true,
+  "devDependencies": { "pp-fixture-ghost2": "^1.0.0" }
+}

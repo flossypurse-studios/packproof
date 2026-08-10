@@ -1,6 +1,7 @@
 import { makeTarball, readManifest, tarballFiles } from './pack.js';
 import { createCleanRoom, installTarball } from './cleanroom.js';
 import { checkEntries, checkRequire, checkBins } from './checks.js';
+import { checkLazyImports } from './lazy.js';
 import { resolve } from 'node:path';
 
 /**
@@ -34,6 +35,12 @@ export async function packproof(target = '.', opts = {}) {
     checks.push(...checkEntries(room, manifest));
     if (!opts.skipRequire) checks.push(...checkRequire(room, manifest));
     checks.push(...checkBins(room, manifest, { binArgs: opts.binArgs }));
+    if (opts.lazy) {
+      // Don't say the same thing twice: if loading already blew up on a package,
+      // the deep probe has nothing to add about it.
+      const already = new Set(checks.filter((c) => !c.pass && c.missing).map((c) => c.missing));
+      checks.push(...checkLazyImports(room, manifest, files, { already }));
+    }
   } finally {
     if (!opts.keep) room.cleanup();
   }

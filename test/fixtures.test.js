@@ -95,3 +95,41 @@ test('multiple independent defects are all reported', { timeout: TIMEOUT }, asyn
   // The entry point and the bin are separate probes, so both are reported.
   assert.deepEqual(kinds(r).sort(), ['bin-not-executable', 'undeclared-dependency']);
 });
+
+// The money test for --lazy: the same fixture, with and without the flag. If the
+// "without" half ever starts failing, --lazy is redundant and should be deleted.
+test('a devDependency required only inside a function is invisible without --lazy', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-lazy-devdep'));
+  assert.equal(r.ok, true, 'executing the package proves nothing about a branch nobody took');
+  assert.deepEqual(kinds(r), []);
+});
+
+test('--lazy catches a devDependency required only inside a function, with file and line', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-lazy-devdep'), { lazy: true });
+  assert.equal(r.ok, false);
+  assert.deepEqual(kinds(r), ['undeclared-dependency']);
+  const f = r.failures[0];
+  assert.match(f.hint, /pp-fixture-ghost2/);
+  assert.match(f.hint, /devDependencies/);
+  assert.match(f.hint, /index\.js:\d+/, 'the hint says exactly where to look');
+  assert.match(f.name, /index\.js:10/);
+  assert.equal(f.missing, 'pp-fixture-ghost2');
+  // a commented-out require and a node: builtin in the same file are not reported
+  assert.equal(r.failures.length, 1);
+  // and the package still installs and imports cleanly — that is the whole point
+  assert.equal(r.checks.find((c) => c.name === 'npm install <tarball>').pass, true);
+});
+
+test('--lazy reports a clean pass on a package whose imports are all declared', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('good-esm'), { lazy: true });
+  assert.equal(r.ok, true);
+  const probe = r.checks.find((c) => c.name === '--lazy deep probe');
+  assert.ok(probe && probe.pass, 'the deep probe reports itself when it finds nothing');
+  assert.match(probe.note, /scanned/);
+});
+
+test('--lazy does not report the same package twice when loading already failed on it', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-devdep'), { lazy: true });
+  assert.deepEqual(kinds(r), ['undeclared-dependency'], 'one problem, reported once');
+  assert.match(r.failures[0].name, /^import /);
+});

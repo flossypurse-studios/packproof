@@ -15,6 +15,9 @@ Options
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
+  --lazy              also read the shipped source for imports hidden inside
+                      functions and branches that merely loading the package
+                      never reaches, and check those are declared too
   --bin-args <args>   args passed to each bin (default: --version)
   -h, --help          show this
   -v, --version       show packproof's version
@@ -29,6 +32,7 @@ function parse(argv) {
     else if (a === '--keep') opts.keep = true;
     else if (a === '--ignore-scripts') opts.ignoreScripts = true;
     else if (a === '--skip-require') opts.skipRequire = true;
+    else if (a === '--lazy') opts.lazy = true;
     else if (a === '--bin-args') opts.binArgs = String(argv[++i] ?? '').split(' ').filter(Boolean);
     else if (a === '-h' || a === '--help') opts.help = true;
     else if (a === '-v' || a === '--version') opts.version = true;

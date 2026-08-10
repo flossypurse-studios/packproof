@@ -83,6 +83,7 @@ packproof [path-or-tarball] [options]
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
+  --lazy              also scan shipped source for imports that never execute
   --bin-args <args>   args passed to each bin (default: --version)
   -h, --help          show help
   -v, --version       show packproof's version
@@ -101,6 +102,12 @@ built. `--keep` leaves the clean room in place so you can go poke at it yourself
   still most of the ecosystem. Skipped for `"type": "module"` packages, where failing is
   correct behaviour.
 - **bins** — every entry in `bin`, actually executed from `node_modules/.bin`.
+- **lazy imports** (`--lazy`) — every `.js`/`.mjs`/`.cjs` file that actually shipped is
+  read back out of the clean room and scanned for bare `import`/`require` specifiers,
+  resolved against your declared dependencies. This covers a gap nothing else does: **a
+  devDependency required only inside a function body passes `npm pack`, passes `npm
+  install`, passes publint, and passes packproof's own execution checks** — no probe ever
+  runs that line, so no probe can notice. Only `--lazy` catches it.
 
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`. The
@@ -142,8 +149,13 @@ runs `publint && packproof`.
   two missing things reports one, then the other after you fix it. Separate entry points
   and bins are probed separately, so those are reported together.
 - **Only reachable code is executed.** Loading a module runs its top level. A
-  devDependency imported lazily inside a function that packproof never calls will not be
-  caught. Nothing short of your own tests can fix that — see below.
+  devDependency imported lazily inside a function that packproof never calls is never
+  *run* — pass `--lazy` and it gets found by reading the shipped source instead.
+- **`--lazy` is static.** It is a regex scan of the shipped text: comments and
+  template-literal prose are blanked out first, but a specifier your code computes at
+  runtime (`require(name)`, `import(base + mod)`) is not a literal and cannot be seen. It
+  also only reads files that actually shipped in the tarball, so anything excluded from
+  `files` is out of scope by construction.
 - **Bins are run with `--version` by default.** If your CLI doesn't support it, a nonzero
   exit is reported as a note, not a failure; use `--bin-args` to give it something real.
 - **It runs a real `npm install`.** That means the network, if you have dependencies, and

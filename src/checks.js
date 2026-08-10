@@ -116,6 +116,7 @@ export function checkEntries(room, manifest) {
         name: `import "${spec}"`,
         pass: false,
         kind: c.kind,
+        missing: c.missing,
         hint: c.hint,
         detail: firstLines(r.stderr),
       });
@@ -142,6 +143,7 @@ export function checkRequire(room, manifest) {
         name: `require("${spec}")`,
         pass: false,
         kind: c.kind,
+        missing: c.missing,
         hint: c.hint,
         detail: firstLines(r.stderr),
       });
@@ -188,6 +190,7 @@ export function checkBins(room, manifest, { binArgs = ['--version'] } = {}) {
         name: `bin "${name}"`,
         pass: false,
         kind: c.kind,
+        missing: c.missing,
         hint: c.hint,
         detail: firstLines(combined),
       });

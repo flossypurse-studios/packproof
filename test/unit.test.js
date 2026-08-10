@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { entrySpecifiers, classifyLoadFailure, firstLines } from '../src/checks.js';
+import { packageNameOf, codeOnly, scanSource } from '../src/lazy.js';
 
 test('entrySpecifiers: main only', () => {
   assert.deepEqual(entrySpecifiers({ name: 'a', main: 'index.js' }), ['a']);
@@ -99,4 +100,57 @@ test('firstLines prefers the real error over node internals', () => {
 Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'chalk' imported from /x`;
   assert.match(firstLines(stderr), /^Error \[ERR_MODULE_NOT_FOUND\]/);
   assert.equal(firstLines(stderr).split('\n').length, 1);
+});
+
+// --- deep probe (--lazy) ---------------------------------------------------
+test('packageNameOf resolves bare specifiers and rejects everything else', () => {
+  assert.equal(packageNameOf('lodash'), 'lodash');
+  assert.equal(packageNameOf('lodash/fp'), 'lodash');
+  assert.equal(packageNameOf('@scope/pkg/sub/path.js'), '@scope/pkg');
+  assert.equal(packageNameOf('node:fs'), 'node:fs');
+  assert.equal(packageNameOf('./local.js'), null);
+  assert.equal(packageNameOf('../up.js'), null);
+  assert.equal(packageNameOf('/abs.js'), null);
+  assert.equal(packageNameOf('file:///x.js'), null);
+  // a template hole is not a package name — this is the false positive that
+  // matters, because tools that generate JS in template strings are common.
+  assert.equal(packageNameOf('${spec}'), null);
+});
+
+test('codeOnly blanks comments and template text but keeps interpolated code', () => {
+  const src = [
+    "// require('commented-out')",
+    "/* require('block-commented') */",
+    "const gen = `await import('generated-only')`;",
+    "const mix = `${require('really-required')}`;",
+    "const s = 'require(\"inside-a-string\")';",
+  ].join('\n');
+  const code = codeOnly(src);
+  assert.ok(!code.includes('commented-out'));
+  assert.ok(!code.includes('block-commented'));
+  assert.ok(!code.includes('generated-only'), 'template literal text is not code');
+  assert.ok(code.includes('really-required'), '${...} interpolations are code');
+  // line count must be preserved so reported line numbers are trustworthy
+  assert.equal(code.split('\n').length, src.split('\n').length);
+});
+
+test('scanSource finds every import form with the right line number', () => {
+  const src = [
+    "import a from 'alpha';",
+    "import 'beta';",
+    "export { x } from 'gamma';",
+    "const d = require('delta');",
+    "async function f() { await import('epsilon'); }",
+    "import rel from './local.js';",
+  ].join('\n');
+  const hits = scanSource(src);
+  assert.deepEqual(
+    hits.map((h) => [h.pkg, h.line]),
+    [['alpha', 1], ['beta', 2], ['gamma', 3], ['delta', 4], ['epsilon', 5]]
+  );
+});
+
+test('scanSource does not report a regex literal as a comment boundary', () => {
+  const hits = scanSource("const re = /https?:\\/\\//; const x = require('zeta');");
+  assert.deepEqual(hits.map((h) => h.pkg), ['zeta']);
 });
