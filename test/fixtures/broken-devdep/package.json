@@ -1,0 +1,9 @@
+{
+  "name": "pp-fixture-broken-devdep",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js"],
+  "private": true,
+  "devDependencies": { "pp-fixture-ghost": "^1.0.0" }
+}

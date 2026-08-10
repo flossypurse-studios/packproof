@@ -1,0 +1,9 @@
+{
+  "name": "pp-fixture-bin-no-shebang",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "bin": { "pp-fixture-bin": "bin/cli.js" },
+  "files": ["index.js", "bin"],
+  "private": true
+}

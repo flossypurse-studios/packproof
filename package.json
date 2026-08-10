@@ -1,0 +1,44 @@
+{
+  "name": "packproof",
+  "version": "0.1.0",
+  "description": "Install your npm package like a stranger would — before they do. Clean-room smoke test for the tarball you are about to publish.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "packproof": "src/cli.js"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "npm",
+    "publish",
+    "pack",
+    "tarball",
+    "smoke-test",
+    "preflight",
+    "packaging",
+    "prepublish",
+    "devdependencies",
+    "clean-room",
+    "publint"
+  ],
+  "author": "flossy-studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flossypurse-studios/packproof.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flossypurse-studios/packproof/issues"
+  },
+  "homepage": "https://packproof.dev"
+}
