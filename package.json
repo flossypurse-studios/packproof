@@ -1,6 +1,6 @@
 {
   "name": "packproof",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Install your npm package like a stranger would — before they do. Clean-room smoke test for the tarball you are about to publish.",
   "type": "module",
   "exports": {
@@ -40,5 +40,5 @@
   "bugs": {
     "url": "https://github.com/flossypurse-studios/packproof/issues"
   },
-  "homepage": "https://packproof.dev"
+  "homepage": "https://packproof-site.vercel.app"
 }

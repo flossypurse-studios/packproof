@@ -2,6 +2,8 @@
 
 **Install your npm package like a stranger would — before they do.**
 
+[Docs & site](https://packproof-site.vercel.app) · [npm](https://www.npmjs.com/package/packproof)
+
 ```
 npx packproof
 ```
