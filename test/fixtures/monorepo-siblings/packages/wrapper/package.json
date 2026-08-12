@@ -1,0 +1,7 @@
+{
+  "name": "pp-fixture-mono-wrapper",
+  "version": "1.0.0",
+  "main": "index.js",
+  "files": ["index.js"],
+  "dependencies": { "pp-fixture-mono-core": "workspace:*" }
+}

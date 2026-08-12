@@ -45,8 +45,24 @@ function workspacePath(result, chk) {
   return `${prefix}/${chk.file}`;
 }
 
+/**
+ * The runs a report covers: one for a single package, one per package for a
+ * workspace run. Each carries its own pathPrefix, so a formatter that iterates
+ * these keeps pointing at the right file in the checkout.
+ */
+export function runsOf(result) {
+  return Array.isArray(result && result.packages) ? result.packages : [result];
+}
+
 /** GitHub Actions workflow commands: one physical line per annotation. */
 export function githubAnnotations(result) {
+  const lines = [];
+  for (const run of runsOf(result)) lines.push(...githubLines(run));
+  if (!lines.length) lines.push(githubCleanNotice(result));
+  return lines.join('\n') + '\n';
+}
+
+function githubLines(result) {
   const lines = [];
   for (const chk of result.checks || []) {
     if (chk.pass) continue;
@@ -59,15 +75,21 @@ export function githubAnnotations(result) {
     props.push(`title=${escapeProp(chk.kind || 'packproof')}`);
     lines.push(`::error ${props.join(',')}::${escapeData(annotationMessage(chk))}`);
   }
-  if (!lines.length) {
-    const passed = (result.checks || []).length;
-    lines.push(
-      `::notice title=packproof::${escapeData(
-        `${result.name}@${result.version} installs clean — ${passed} check${passed === 1 ? '' : 's'} passed, ${result.fileCount} files`
-      )}`
-    );
-  }
-  return lines.join('\n') + '\n';
+  return lines;
+}
+
+/** Nothing failed. Say so once, so the step is never silently empty. */
+function githubCleanNotice(result) {
+  const runs = runsOf(result);
+  const passed = runs.reduce((n, r) => n + (r.checks || []).length, 0);
+  const files = runs.reduce((n, r) => n + (r.fileCount || 0), 0);
+  const subject = result.packages
+    ? `${runs.length} package${runs.length === 1 ? '' : 's'} in ${result.rootName || 'this workspace'} ` +
+      `install${runs.length === 1 ? 's' : ''}`
+    : `${result.name}@${result.version} installs`;
+  return `::notice title=packproof::${escapeData(
+    `${subject} clean — ${passed} check${passed === 1 ? '' : 's'} passed, ${files} files`
+  )}`;
 }
 
 /** A packproof error (exit 2) still has to be visible in the log. */
@@ -90,18 +112,28 @@ function seconds(ms) {
   return (Number(ms || 0) / 1000).toFixed(3);
 }
 
-/** JUnit XML: one testcase per check, one <failure> per problem. */
+/**
+ * JUnit XML: one testcase per check, one <failure> per problem, and — for a
+ * workspace run — one <testsuite> per package inside the same <testsuites>.
+ */
 export function junitXml(result) {
+  const runs = runsOf(result);
+  const total = runs.reduce((n, r) => n + (r.checks || []).length, 0);
+  const failed = runs.reduce((n, r) => n + (r.checks || []).filter((c) => !c.pass).length, 0);
+  const counts = `tests="${total}" failures="${failed}" errors="0" time="${seconds(result.durationMs)}"`;
+  const out = ['<?xml version="1.0" encoding="UTF-8"?>', `<testsuites name="packproof" ${counts}>`];
+  for (const run of runs) out.push(...junitSuite(run));
+  out.push('</testsuites>', '');
+  return out.join('\n');
+}
+
+function junitSuite(result) {
   const checks = result.checks || [];
   const failures = checks.filter((c) => !c.pass).length;
   const time = seconds(result.durationMs);
   const suiteName = `${result.name}@${result.version}`;
   const counts = `tests="${checks.length}" failures="${failures}" errors="0" time="${time}"`;
-  const out = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    `<testsuites name="packproof" ${counts}>`,
-    `  <testsuite name="${xml(suiteName)}" ${counts}>`,
-  ];
+  const out = [`  <testsuite name="${xml(suiteName)}" ${counts}>`];
   for (const chk of checks) {
     const attrs = [`name="${xml(chk.name)}"`, `classname="${xml(result.name)}"`];
     const file = workspacePath(result, chk);
@@ -122,8 +154,8 @@ export function junitXml(result) {
     out.push('      </failure>');
     out.push('    </testcase>');
   }
-  out.push('  </testsuite>', '</testsuites>', '');
-  return out.join('\n');
+  out.push('  </testsuite>');
+  return out;
 }
 
 /** A packproof error as a JUnit report, so CI cannot read a crash as green. */
@@ -142,4 +174,4 @@ export function junitError(message, name = 'packproof') {
   ].join('\n');
 }
 
-export const FORMATS = { names: FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError };
+export const FORMATS = { names: FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError, runsOf };

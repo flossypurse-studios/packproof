@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { packproof } from './index.js';
+import { packproof, packproofWorkspaces } from './index.js';
 import { FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError } from './format.js';
 
 const HELP = `packproof — install your package like a stranger would, before they do.
@@ -13,9 +13,17 @@ your users.
 
 With --registry it skips packing and downloads an already-published
 version instead, so you can prove a release after the fact — yours or
-anyone else's.
+anyone else's. With --workspaces it does the whole monorepo, one
+independent clean room per package.
 
 Options
+  --workspaces        prove every package the root package.json (or a
+                      pnpm-workspace.yaml) declares, each in its own clean
+                      room. Private packages are skipped: nobody installs
+                      them. One report section per package.
+  --workspace <name>  only this workspace package (repeatable; accepts the
+                      package name or its directory). Implies --workspaces.
+  --include-private   do not skip private workspace packages
   --registry [spec]   prove a published package instead of the local tree.
                       spec is pkg, pkg@1.2.3 or pkg@tag (default: this
                       package's name at its latest tag). The tarball is
@@ -49,6 +57,10 @@ function parse(argv) {
       else opts.registry = argv[++i];
     }
     else if (a === '--registry-url') opts.registryUrl = String(argv[++i] ?? '');
+    else if (a === '--workspaces') opts.workspaces = true;
+    else if (a === '--workspace') { (opts.workspace ||= []).push(String(argv[++i] ?? '')); opts.workspaces = true; }
+    else if (a.startsWith('--workspace=')) { (opts.workspace ||= []).push(a.slice('--workspace='.length)); opts.workspaces = true; }
+    else if (a === '--include-private') opts.includePrivate = true;
     else if (a === '--json') opts.format = 'json';
     else if (a === '--format') opts.format = String(argv[++i] ?? '');
     else if (a.startsWith('--format=')) opts.format = a.slice('--format='.length);
@@ -83,6 +95,11 @@ if (opts.version) {
 }
 if (opts.unknown) { console.error(`packproof: unknown option ${opts.unknown}\n`); process.stdout.write(HELP); process.exit(2); }
 
+if (opts.workspaces && opts.registry) {
+  console.error('packproof: --workspaces proves a checkout and --registry proves a published version — pick one');
+  process.exit(2);
+}
+
 const format = opts.format || 'human';
 if (!FORMAT_NAMES.includes(format)) {
   console.error(`packproof: unknown format "${format}" — pick one of ${FORMAT_NAMES.join(', ')}`);
@@ -100,7 +117,7 @@ async function emit(text) {
 
 let result;
 try {
-  result = await packproof(opts.target, opts);
+  result = opts.workspaces ? await packproofWorkspaces(opts.target, opts) : await packproof(opts.target, opts);
 } catch (e) {
   if (format === 'json') await emit(JSON.stringify({ ok: false, error: e.message }, null, 2) + '\n');
   else if (format === 'github') await emit(githubError(e.message));
@@ -116,21 +133,54 @@ if (format !== 'human') {
   process.exit(result.ok ? 0 : 1);
 }
 
-const provenance =
-  result.source === 'registry'
-    ? `— ${result.fileCount} files, published to ${result.registry.url.replace(/^https?:\/\//, '')}`
-    : `— ${result.fileCount} files packed`;
-console.log(`${c.bold(`${result.name}@${result.version}`)} ${c.dim(provenance)}`);
-for (const chk of result.checks) {
-  if (chk.pass) {
-    console.log(`  ${c.green('✓')} ${chk.name}${chk.note ? c.dim(` — ${chk.note}`) : ''}`);
-  } else {
-    console.log(`  ${c.red('✗')} ${chk.name} ${c.dim(`[${chk.kind}]`)}`);
-    if (chk.hint) console.log(`      ${c.yellow(chk.hint)}`);
-    if (chk.detail) for (const line of chk.detail.split('\n')) console.log(c.dim(`      ${line}`));
+/** One package's section: the header line, then every check under it. */
+function printPackage(r) {
+  const provenance =
+    r.source === 'registry'
+      ? `— ${r.fileCount} files, published to ${r.registry.url.replace(/^https?:\/\//, '')}`
+      : `— ${r.fileCount} files packed`;
+  const where = r.workspaceDir ? c.dim(` ${r.workspaceDir}`) : '';
+  console.log(`${c.bold(`${r.name}@${r.version}`)}${where} ${c.dim(provenance)}`);
+  for (const chk of r.checks) {
+    if (chk.pass) {
+      console.log(`  ${c.green('✓')} ${chk.name}${chk.note ? c.dim(` — ${chk.note}`) : ''}`);
+    } else {
+      console.log(`  ${c.red('✗')} ${chk.name} ${c.dim(`[${chk.kind}]`)}`);
+      if (chk.hint) console.log(`      ${c.yellow(chk.hint)}`);
+      if (chk.detail) for (const line of chk.detail.split('\n')) console.log(c.dim(`      ${line}`));
+    }
   }
+  if (r.room) console.log(c.dim(`\nclean room kept at ${r.room}`));
 }
-if (result.room) console.log(c.dim(`\nclean room kept at ${result.room}`));
+
+if (result.workspaces) {
+  const n = result.packageCount;
+  console.log(
+    `${c.bold(result.rootName || result.root || 'workspace')} ${c.dim(
+      `— ${n} package${n === 1 ? '' : 's'} from ${result.workspaceSource}, one clean room each`
+    )}\n`
+  );
+  for (const r of result.packages) {
+    printPackage(r);
+    console.log('');
+  }
+  for (const s of result.skipped) {
+    console.log(c.dim(`- ${s.name} ${s.dir} — skipped, ${s.reason}`));
+  }
+  if (result.skipped.length) console.log('');
+  const bad = result.packages.filter((r) => !r.ok);
+  console.log(
+    result.ok
+      ? c.green(`packproof: all ${n} package${n === 1 ? ' works' : 's work'} when installed.`)
+      : c.red(
+          `packproof: ${result.failures.length} problem${result.failures.length === 1 ? '' : 's'} your users would hit, in ` +
+            `${bad.length} of ${n} package${n === 1 ? '' : 's'} (${bad.map((r) => r.name).join(', ')}).`
+        )
+  );
+  process.exit(result.ok ? 0 : 1);
+}
+
+printPackage(result);
 console.log(
   result.ok
     ? `\n${c.green('packproof: this package works when installed.')}`

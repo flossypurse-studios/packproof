@@ -22,6 +22,12 @@ npx packproof --registry left-pad@1.3.0
 That downloads the exact tarball the registry serves, checks it against the integrity hash
 the registry published for it, and clean-rooms *those bytes*. No local checkout involved.
 
+In a monorepo it does every package the workspace declares, each in its own clean room:
+
+```
+npx packproof --workspaces
+```
+
 In CI it speaks your CI's language, so a failure lands on the offending line instead of in
 scrollback:
 
@@ -96,6 +102,9 @@ or in your `package.json`:
 ```
 packproof [path-or-tarball] [options]
 
+  --workspaces        prove every package in the workspace, one clean room each
+  --workspace <name>  only this workspace package (repeatable; implies --workspaces)
+  --include-private   do not skip private workspace packages
   --registry [spec]   prove a published package instead of the local tree
   --registry-url <u>  registry to ask (default https://registry.npmjs.org)
   --json              machine-readable output (same as --format=json)
@@ -141,6 +150,53 @@ resolved, because packproof's answer is about one specific set of bytes and shou
 change under you. `--registry-url` points at a private or mirrored registry (the
 `PACKPROOF_REGISTRY`-style env var is deliberately absent: the registry you proved
 against is printed in the output and recorded in `--json`).
+
+### Monorepos (`--workspaces`)
+
+```sh
+packproof --workspaces                      # every package the workspace declares
+packproof --workspace @acme/core            # just one of them (by name or by directory)
+packproof --workspaces --format=junit --out packproof.xml
+```
+
+A monorepo publishes several packages, and each one is a separate promise to a stranger.
+`--workspaces` reads the `workspaces` globs from your root `package.json` (a
+`pnpm-workspace.yaml` works too) and packs and clean-rooms **each package
+independently** — a separate empty project per package, never a shared one, because a
+shared clean room would hide exactly the bug packproof exists to find.
+
+```
+acme — 3 packages from package.json, one clean room each
+
+@acme/core@2.1.0 packages/core — 14 files packed
+  ✓ npm install <tarball>
+  ✓ import "@acme/core"
+
+@acme/cli@2.1.0 packages/cli — 9 files packed
+  ✗ npm install <tarball> [workspace-sibling-dependency]
+      depends on @acme/core@workspace:*, another package in this workspace. A stranger
+      installs from the registry, not from your checkout...
+
+- @acme/docs apps/docs — skipped, private
+
+packproof: 1 problem your users would hit, in 1 of 2 packages (@acme/cli).
+```
+
+Private packages are skipped — nobody installs them — unless you pass
+`--include-private`. Each package keeps its own path prefix, so `--format=github`
+annotates `packages/core/src/a.js` and not `src/a.js`, and `--format=junit` emits one
+`<testsuite>` per package inside a single `<testsuites>`. Exit codes are unchanged:
+**1** if *any* package has a problem your users would hit.
+
+**A dependency on a sibling package is its own kind of finding.** A clean room installs
+from the registry, so a tarball that depends on another package in your workspace can
+only be proved once that sibling is published at a version the range resolves to. When
+the install fails for that reason, packproof reports
+`workspace-sibling-dependency` — not `undeclared-dependency`, because the dependency
+is declared; it just isn't reachable from outside your checkout. A `workspace:` range
+is the sharp case: `npm pack` leaves it in the tarball verbatim, so publishing it ships
+a version nobody can install. If the sibling *is* published and resolves, the install
+passes and packproof notes where it came from.
 
 ### In CI (`--format=github`, `--format=junit`)
 
@@ -199,7 +255,8 @@ A minimal workflow step:
   runs that line, so no probe can notice. Only `--lazy` catches it.
 
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
-`missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`. The
+`missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
+`workspace-sibling-dependency`, `integrity-mismatch`. The
 classification is the useful part — "it broke" is not actionable, "your devDependency
 leaked" is.
 
@@ -258,7 +315,14 @@ runs `publint && packproof`.
   the shipped file's path with the target directory you passed, so run packproof from the
   repository root (`packproof packages/foo`) and Actions will find the file. Paths outside
   the checkout are not guessed at, and `--registry` mode emits no `file=` at all.
-- **No workspace/monorepo awareness yet.** Point it at one package directory at a time.
+- **A workspace package that depends on an unpublished sibling cannot be fully proved.**
+  packproof says so (`workspace-sibling-dependency`) rather than pretending: releasing a
+  monorepo means publishing the leaves first, then proving the packages above them with
+  `--registry`. Nothing installs a sibling out of your checkout, and packproof will not
+  fake it by linking one in.
+- **Workspace discovery is glob matching, not a package manager.** `*`, `**`, `?` and
+  `!` negations in `workspaces` (or `pnpm-workspace.yaml`) are honoured; anything more
+  exotic than that, and packproof will miss a package rather than guess.
 - **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
   you downloaded are the bytes the registry has on record for that version; it is not
   provenance or a signature check.

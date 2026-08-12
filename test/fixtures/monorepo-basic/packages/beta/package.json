@@ -1,0 +1,8 @@
+{
+  "name": "pp-fixture-mono-beta",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js"],
+  "devDependencies": { "pp-fixture-ghost": "^1.0.0" }
+}
