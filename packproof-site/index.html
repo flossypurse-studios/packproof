@@ -95,6 +95,7 @@
     </div>
     <div class="cta">
       <a class="btn primary" href="#install">Install</a>
+      <a class="btn ghost" href="#registry">Prove a published version</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
   </div>
@@ -128,6 +129,36 @@
     <tr><td>bin with no shebang</td><td class="desc">you never exec it as a program, so the shell never tries to parse it</td></tr>
   </table>
   <p class="muted" style="margin-top:16px"><code>npm pack</code> and <code>npm install</code> report <strong>no problem at all</strong> for a package with all three. They aren't lying — packing and installing genuinely succeed. Nothing has tried to <em>use</em> it.</p>
+</section>
+
+<section id="registry">
+  <h2>Or prove a version <span style="color:var(--muted)">that's already published</span></h2>
+  <p>Everything above asks "would this tree survive publishing?". <code class="inline-code">--registry</code> asks it afterwards, about any package on the registry — yours or a stranger's. Nothing is packed: packproof resolves the spec, downloads the exact <code class="inline-code">dist.tarball</code> the registry serves, verifies it against the published <code class="inline-code">dist.integrity</code>, and clean-rooms those bytes.</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof --registry chalk@4.1.2 --lazy</span>
+<span class="c-cmd">chalk@4.1.2</span> <span class="c-muted">— 7 files, published to registry.npmjs.org</span>
+  <span class="c-green">✓</span> fetch chalk@4.1.2 from registry <span class="c-muted">— 11.3 kB, sha512 integrity verified</span>
+  <span class="c-green">✓</span> npm install &lt;tarball&gt;
+  <span class="c-green">✓</span> import "chalk"
+  <span class="c-green">✓</span> require("chalk")
+  <span class="c-green">✓</span> --lazy deep probe <span class="c-muted">— 3 shipped source files scanned, every import declared</span>
+
+<span class="c-green">packproof: this package works when installed.</span></pre>
+  </div>
+  <pre class="block"><span class="c-comment"># this package, at its latest published tag</span>
+packproof --registry
+
+<span class="c-comment"># an exact version, or any dist-tag</span>
+packproof --registry my-package@2.3.0
+packproof --registry my-package@next</pre>
+  <table>
+    <tr><th>Why you'd want it</th><th></th></tr>
+    <tr><td>audit a release</td><td class="desc">a publish gate proves the tree you had; this proves the artifact users download. Those differ more often than you'd like — a stale <code>files</code> list, a republish, CI packing a different commit</td></tr>
+    <tr><td>vet a dependency</td><td class="desc">does the package you're about to adopt even import cleanly with nothing else installed?</td></tr>
+    <tr><td>reproduce a bug report</td><td class="desc">against the version the reporter actually has, not against <code>main</code></td></tr>
+  </table>
+  <p class="muted" style="margin-top:16px">An exact version or a dist-tag is required — ranges like <code>^1.2.0</code> are refused rather than resolved, because the answer is about one specific set of bytes and shouldn't change under you. If the download doesn't match the registry's hash you get <code>integrity-mismatch</code> and <strong>nothing is installed</strong>. <code>--registry-url</code> points at a private or mirrored registry.</p>
 </section>
 
 <section id="install">
@@ -181,6 +212,7 @@ npm i -D packproof</pre>
     <tr><td><code>bin-missing</code></td><td class="desc">the <code>bin</code> target didn't ship</td></tr>
     <tr><td><code>install-failed</code></td><td class="desc">the tarball wouldn't install at all</td></tr>
     <tr><td><code>load-error</code></td><td class="desc">it loaded and then threw — a real crash on import</td></tr>
+    <tr><td><code>integrity-mismatch</code></td><td class="desc"><code>--registry</code> only: the downloaded tarball isn't the bytes the registry has on record</td></tr>
   </table>
 </section>
 
@@ -188,6 +220,8 @@ npm i -D packproof</pre>
   <h2>Options</h2>
   <table>
     <tr><th>Flag</th><th>What it does</th></tr>
+    <tr><td><code>--registry [spec]</code></td><td class="desc">prove a published package instead of the local tree — <code>pkg</code>, <code>pkg@1.2.3</code> or <code>pkg@tag</code>, defaulting to this package at its latest tag</td></tr>
+    <tr><td><code>--registry-url &lt;u&gt;</code></td><td class="desc">registry to ask (default <code>https://registry.npmjs.org</code>)</td></tr>
     <tr><td><code>--json</code></td><td class="desc">machine-readable output</td></tr>
     <tr><td><code>--keep</code></td><td class="desc">keep the clean room and print its path, so you can go poke at it yourself</td></tr>
     <tr><td><code>--ignore-scripts</code></td><td class="desc">install with <code>--ignore-scripts</code> (packproof otherwise runs your postinstall, like a user would)</td></tr>
@@ -200,7 +234,10 @@ npm i -D packproof</pre>
   <pre class="block"><span class="c-key">import</span> { packproof } <span class="c-key">from</span> <span class="c-str">'packproof'</span>;
 
 <span class="c-key">const</span> result = <span class="c-key">await</span> packproof(<span class="c-str">'.'</span>);
-<span class="c-key">if</span> (!result.ok) console.error(result.failures.map((f) =&gt; f.kind));</pre>
+<span class="c-key">if</span> (!result.ok) console.error(result.failures.map((f) =&gt; f.kind));
+
+<span class="c-comment">// or a version that's already out there</span>
+<span class="c-key">await</span> packproof(<span class="c-str">'.'</span>, { registry: <span class="c-str">'chalk@4.1.2'</span> });</pre>
 </section>
 
 <section id="publint">
@@ -214,7 +251,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. No workspace/monorepo awareness yet — point it at one package at a time.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. No workspace/monorepo awareness yet — point it at one package at a time. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
 </section>
 
 </div>
