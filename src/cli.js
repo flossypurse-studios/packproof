@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { packproof } from './index.js';
+import { FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError } from './format.js';
 
 const HELP = `packproof — install your package like a stranger would, before they do.
 
@@ -20,7 +21,12 @@ Options
                       package's name at its latest tag). The tarball is
                       checked against the integrity the registry published.
   --registry-url <u>  registry to ask (default https://registry.npmjs.org)
-  --json              machine-readable output
+  --json              machine-readable output (same as --format=json)
+  --format <fmt>      human (default), json, github or junit.
+                      github prints GitHub Actions annotations, so a failure
+                      lands on the offending line instead of in scrollback;
+                      junit writes a JUnit XML report most CI runners ingest.
+  --out <file>        write the formatted report to a file instead of stdout
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
@@ -43,7 +49,10 @@ function parse(argv) {
       else opts.registry = argv[++i];
     }
     else if (a === '--registry-url') opts.registryUrl = String(argv[++i] ?? '');
-    else if (a === '--json') opts.json = true;
+    else if (a === '--json') opts.format = 'json';
+    else if (a === '--format') opts.format = String(argv[++i] ?? '');
+    else if (a.startsWith('--format=')) opts.format = a.slice('--format='.length);
+    else if (a === '--out') opts.out = String(argv[++i] ?? '');
     else if (a === '--keep') opts.keep = true;
     else if (a === '--ignore-scripts') opts.ignoreScripts = true;
     else if (a === '--skip-require') opts.skipRequire = true;
@@ -74,17 +83,36 @@ if (opts.version) {
 }
 if (opts.unknown) { console.error(`packproof: unknown option ${opts.unknown}\n`); process.stdout.write(HELP); process.exit(2); }
 
+const format = opts.format || 'human';
+if (!FORMAT_NAMES.includes(format)) {
+  console.error(`packproof: unknown format "${format}" — pick one of ${FORMAT_NAMES.join(', ')}`);
+  process.exit(2);
+}
+
+/** Report text goes to --out if asked, otherwise stdout. Exit code is unchanged either way. */
+async function emit(text) {
+  if (!opts.out) { process.stdout.write(text); return; }
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  mkdirSync(dirname(opts.out), { recursive: true });
+  writeFileSync(opts.out, text);
+}
+
 let result;
 try {
   result = await packproof(opts.target, opts);
 } catch (e) {
-  if (opts.json) console.log(JSON.stringify({ ok: false, error: e.message }, null, 2));
+  if (format === 'json') await emit(JSON.stringify({ ok: false, error: e.message }, null, 2) + '\n');
+  else if (format === 'github') await emit(githubError(e.message));
+  else if (format === 'junit') await emit(junitError(e.message));
   else console.error(c.red(`packproof: ${e.message}`));
   process.exit(2);
 }
 
-if (opts.json) {
-  console.log(JSON.stringify(result, null, 2));
+if (format !== 'human') {
+  if (format === 'json') await emit(JSON.stringify(result, null, 2) + '\n');
+  else if (format === 'github') await emit(githubAnnotations(result));
+  else await emit(junitXml(result));
   process.exit(result.ok ? 0 : 1);
 }
 

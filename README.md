@@ -22,6 +22,14 @@ npx packproof --registry left-pad@1.3.0
 That downloads the exact tarball the registry serves, checks it against the integrity hash
 the registry published for it, and clean-rooms *those bytes*. No local checkout involved.
 
+In CI it speaks your CI's language, so a failure lands on the offending line instead of in
+scrollback:
+
+```
+npx packproof --lazy --format=github     # GitHub Actions annotations
+npx packproof --format=junit --out packproof.xml
+```
+
 ## Why your test suite can't catch this
 
 Your CI runs inside your source tree. In that tree, every devDependency is installed and
@@ -90,7 +98,9 @@ packproof [path-or-tarball] [options]
 
   --registry [spec]   prove a published package instead of the local tree
   --registry-url <u>  registry to ask (default https://registry.npmjs.org)
-  --json              machine-readable output
+  --json              machine-readable output (same as --format=json)
+  --format <fmt>      human (default), json, github or junit
+  --out <file>        write the formatted report to a file instead of stdout
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
@@ -131,6 +141,45 @@ resolved, because packproof's answer is about one specific set of bytes and shou
 change under you. `--registry-url` points at a private or mirrored registry (the
 `PACKPROOF_REGISTRY`-style env var is deliberately absent: the registry you proved
 against is printed in the output and recorded in `--json`).
+
+### In CI (`--format=github`, `--format=junit`)
+
+```sh
+packproof --lazy --format=github                 # GitHub Actions annotations
+packproof --format=junit --out packproof.xml     # JUnit XML for everything else
+```
+
+A failure that scrolls past in a log costs the same as no failure at all. With
+`--format=github`, packproof emits workflow commands instead of prose:
+
+```
+::error file=src/render.js,line=42,title=undeclared-dependency::require("kleur") in src/render.js:42%0A"kleur" is loaded at runtime from src/render.js:42 but is only in devDependencies...
+```
+
+Actions turns that into a red annotation **on line 42 of `src/render.js`** in the diff.
+The file and line come from `--lazy`, which is the only check that knows a location, so
+`--lazy --format=github` is the combination worth wiring up. A failure with no file —
+the install itself, a broken bin — degrades to a bare `::error title=<kind>::`, which
+still shows up in the log and in the job summary. A clean run emits one `::notice` so
+the step is never silently empty. Message values are escaped exactly as Actions requires
+(`%` → `%25`, newlines → `%0A`), and property values additionally escape `:` and `,`;
+get that wrong and Actions truncates the line without telling you.
+
+`--format=junit` writes a JUnit XML report — one `<testcase>` per check, a
+`<failure type="<kind>">` per problem, `file`/`line` attributes where known — which
+GitLab, Jenkins, CircleCI, Buildkite and the `dorny/test-reporter` action all ingest.
+A packproof error (exit 2) is written as an `<error>` testcase, so a crash can never be
+read as green.
+
+Exit codes are unchanged by any format: **0** clean, **1** a problem your users would
+hit, **2** packproof itself failed. In `--registry` mode no `file=` is emitted at all:
+those bytes came from the registry and need not match anything in your checkout.
+
+A minimal workflow step:
+
+```yaml
+- run: npx packproof --lazy --format=github
+```
 
 ### What gets checked
 
@@ -205,6 +254,10 @@ runs `publint && packproof`.
 - **It runs a real `npm install`.** That means the network, if you have dependencies, and
   a few seconds. It also means postinstall scripts run — pass `--ignore-scripts` if you'd
   rather they didn't.
+- **Annotation paths are relative to the working directory.** `--format=github` prefixes
+  the shipped file's path with the target directory you passed, so run packproof from the
+  repository root (`packproof packages/foo`) and Actions will find the file. Paths outside
+  the checkout are not guessed at, and `--registry` mode emits no `file=` at all.
 - **No workspace/monorepo awareness yet.** Point it at one package directory at a time.
 - **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
   you downloaded are the bytes the registry has on record for that version; it is not

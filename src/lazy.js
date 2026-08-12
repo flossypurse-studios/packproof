@@ -186,6 +186,10 @@ export function checkLazyImports(room, manifest, files, { already = new Set() } 
         pass: false,
         kind: 'undeclared-dependency',
         missing: hit.pkg,
+        // Machine-readable location, for --format=github/junit: the human name
+        // above already says file:line, but a formatter should not have to parse it.
+        file,
+        line: hit.line,
         hint: dev.has(hit.pkg)
           ? `"${hit.pkg}" is loaded at runtime from ${where} but is only in devDependencies, where it works for you and for nobody else. Move it to dependencies.`
           : `"${hit.pkg}" is loaded at runtime from ${where} but is not declared as a dependency at all. Add it, or stop importing it.`,

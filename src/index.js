@@ -3,7 +3,20 @@ import { createCleanRoom, installTarball } from './cleanroom.js';
 import { checkEntries, checkRequire, checkBins } from './checks.js';
 import { checkLazyImports } from './lazy.js';
 import { fetchRegistryTarball, manifestFromTarball, DEFAULT_REGISTRY } from './registry.js';
-import { resolve } from 'node:path';
+import { resolve, relative, sep } from 'node:path';
+
+/**
+ * Where the packed files live relative to the working directory, so a formatter
+ * can turn a package-relative path like "src/a.js" into one CI can click on.
+ * Empty string means "the working directory is the package root".
+ */
+function pathPrefixFor(target) {
+  if (!target || target === '.') return '';
+  if (/\.(tgz|tar\.gz)$/.test(target)) return '';
+  const rel = relative(process.cwd(), resolve(process.cwd(), target));
+  if (!rel || rel.startsWith('..')) return ''; // outside the checkout: don't pretend
+  return rel.split(sep).join('/');
+}
 
 /**
  * Pack the project (or download an already-published version), install it into
@@ -12,6 +25,7 @@ import { resolve } from 'node:path';
  */
 export async function packproof(target = '.', opts = {}) {
   const started = Date.now();
+  opts = { ...opts, target };
   const checks = [];
   let manifest;
   let tarball;
@@ -103,6 +117,7 @@ function finish({ manifest, tarball, packed, files, checks, started, room, opts,
     name: manifest.name,
     version: manifest.version,
     source: source || 'local',
+    pathPrefix: source === 'registry' ? null : pathPrefixFor(opts.target ?? null),
     registry: registry || null,
     tarball,
     packed,
