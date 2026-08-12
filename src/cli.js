@@ -10,7 +10,16 @@ throwaway project where none of your devDependencies exist, then imports
 every entry point and runs every bin. If it breaks there, it breaks for
 your users.
 
+With --registry it skips packing and downloads an already-published
+version instead, so you can prove a release after the fact — yours or
+anyone else's.
+
 Options
+  --registry [spec]   prove a published package instead of the local tree.
+                      spec is pkg, pkg@1.2.3 or pkg@tag (default: this
+                      package's name at its latest tag). The tarball is
+                      checked against the integrity the registry published.
+  --registry-url <u>  registry to ask (default https://registry.npmjs.org)
   --json              machine-readable output
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
@@ -28,7 +37,13 @@ function parse(argv) {
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--json') opts.json = true;
+    if (a === '--registry') {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith('-')) opts.registry = true;
+      else opts.registry = argv[++i];
+    }
+    else if (a === '--registry-url') opts.registryUrl = String(argv[++i] ?? '');
+    else if (a === '--json') opts.json = true;
     else if (a === '--keep') opts.keep = true;
     else if (a === '--ignore-scripts') opts.ignoreScripts = true;
     else if (a === '--skip-require') opts.skipRequire = true;
@@ -73,7 +88,11 @@ if (opts.json) {
   process.exit(result.ok ? 0 : 1);
 }
 
-console.log(`${c.bold(`${result.name}@${result.version}`)} ${c.dim(`— ${result.fileCount} files packed`)}`);
+const provenance =
+  result.source === 'registry'
+    ? `— ${result.fileCount} files, published to ${result.registry.url.replace(/^https?:\/\//, '')}`
+    : `— ${result.fileCount} files packed`;
+console.log(`${c.bold(`${result.name}@${result.version}`)} ${c.dim(provenance)}`);
 for (const chk of result.checks) {
   if (chk.pass) {
     console.log(`  ${c.green('✓')} ${chk.name}${chk.note ? c.dim(` — ${chk.note}`) : ''}`);

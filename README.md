@@ -13,6 +13,15 @@ packproof runs `npm pack`, installs the resulting tarball into an empty throwawa
 declared bin. If your package is broken for the people who install it, you find out in
 about ten seconds instead of from an issue titled "doesn't work".
 
+It also works on packages that are already published — yours or anyone else's:
+
+```
+npx packproof --registry left-pad@1.3.0
+```
+
+That downloads the exact tarball the registry serves, checks it against the integrity hash
+the registry published for it, and clean-rooms *those bytes*. No local checkout involved.
+
 ## Why your test suite can't catch this
 
 Your CI runs inside your source tree. In that tree, every devDependency is installed and
@@ -79,6 +88,8 @@ or in your `package.json`:
 ```
 packproof [path-or-tarball] [options]
 
+  --registry [spec]   prove a published package instead of the local tree
+  --registry-url <u>  registry to ask (default https://registry.npmjs.org)
   --json              machine-readable output
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
@@ -91,6 +102,35 @@ packproof [path-or-tarball] [options]
 
 Pass a directory to pack it, or an existing `.tgz` to test exactly the bytes you already
 built. `--keep` leaves the clean room in place so you can go poke at it yourself.
+
+### Proving a published version (`--registry`)
+
+```sh
+packproof --registry                  # this package, at its latest published tag
+packproof --registry chalk@4.1.2      # someone else's release, exact version
+packproof --registry mypkg@next       # any dist-tag
+```
+
+Nothing is packed: packproof resolves the spec against the registry, downloads
+`dist.tarball`, verifies it against the published `dist.integrity` (or the legacy
+`shasum`), and only then installs it. A hash mismatch is reported as
+`integrity-mismatch` and **nothing is installed**.
+
+Why you'd want it:
+
+- **Audit a release after the fact.** `prepublishOnly` proves the tree you had; this
+  proves the artifact users actually download. Registry state can differ from your working
+  copy — a stale `files` list, a two-factor republish, a CI that packed from a different
+  commit.
+- **Vet a dependency before you adopt it.** Does that package you're about to add even
+  import cleanly with nothing else installed?
+- **Reproduce a bug report against the version the reporter has**, not against `main`.
+
+An exact version or a dist-tag is required. Ranges (`^1.2.0`) are refused rather than
+resolved, because packproof's answer is about one specific set of bytes and should not
+change under you. `--registry-url` points at a private or mirrored registry (the
+`PACKPROOF_REGISTRY`-style env var is deliberately absent: the registry you proved
+against is printed in the output and recorded in `--json`).
 
 ### What gets checked
 
@@ -123,7 +163,11 @@ const result = await packproof('.');
 if (!result.ok) console.error(result.failures.map((f) => f.kind));
 ```
 
-`result` is `{ name, version, tarball, packed, files, fileCount, checks, failures, ok, room, durationMs }`.
+`result` is `{ name, version, source, registry, tarball, packed, files, fileCount, checks, failures, ok, room, durationMs }`.
+
+`source` is `'local'` or `'registry'`; `registry` is `null` unless you passed the option, in
+which case it records `{ spec, url, tarballUrl, bytes, integrity }`. To prove a published
+version programmatically: `await packproof('.', { registry: 'chalk@4.1.2' })`.
 
 ## packproof vs publint
 
@@ -162,6 +206,9 @@ runs `publint && packproof`.
   a few seconds. It also means postinstall scripts run — pass `--ignore-scripts` if you'd
   rather they didn't.
 - **No workspace/monorepo awareness yet.** Point it at one package directory at a time.
+- **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
+  you downloaded are the bytes the registry has on record for that version; it is not
+  provenance or a signature check.
 
 ## Install
 
