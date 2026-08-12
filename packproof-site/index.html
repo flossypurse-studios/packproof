@@ -96,6 +96,7 @@
     <div class="cta">
       <a class="btn primary" href="#install">Install</a>
       <a class="btn ghost" href="#registry">Prove a published version</a>
+      <a class="btn ghost" href="#workspaces">Monorepos</a>
       <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
@@ -160,6 +161,47 @@ packproof --registry my-package@next</pre>
     <tr><td>reproduce a bug report</td><td class="desc">against the version the reporter actually has, not against <code>main</code></td></tr>
   </table>
   <p class="muted" style="margin-top:16px">An exact version or a dist-tag is required — ranges like <code>^1.2.0</code> are refused rather than resolved, because the answer is about one specific set of bytes and shouldn't change under you. If the download doesn't match the registry's hash you get <code>integrity-mismatch</code> and <strong>nothing is installed</strong>. <code>--registry-url</code> points at a private or mirrored registry.</p>
+</section>
+
+<section id="workspaces">
+  <h2>A monorepo is <span style="color:var(--muted)">several promises, not one</span></h2>
+  <p>Each package you publish out of a monorepo is a separate promise to a stranger, so <code class="inline-code">--workspaces</code> keeps them separate: it reads the <code class="inline-code">workspaces</code> globs from your root <code class="inline-code">package.json</code> (a <code class="inline-code">pnpm-workspace.yaml</code> works too) and packs and clean-rooms <strong>each package independently</strong> — a fresh empty project per package, never a shared one. A shared clean room would let one package satisfy another's missing dependency, which is exactly the bug packproof exists to find.</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof --workspaces</span>
+<span class="c-cmd">acme</span> <span class="c-muted">— 3 packages from package.json, one clean room each</span>
+
+<span class="c-cmd">@acme/core@2.1.0</span> <span class="c-muted">packages/core — 14 files packed</span>
+  <span class="c-green">✓</span> npm install &lt;tarball&gt;
+  <span class="c-green">✓</span> import "@acme/core"
+
+<span class="c-cmd">@acme/cli@2.1.0</span> <span class="c-muted">packages/cli — 9 files packed</span>
+  <span class="c-red">✗ npm install &lt;tarball&gt;</span> <span class="c-yellow">[workspace-sibling-dependency]</span>
+      <span class="c-muted">depends on @acme/core@workspace:*, another package in this
+      workspace. A stranger installs from the registry, not from your
+      checkout, so this tarball cannot be proved on its own…</span>
+
+<span class="c-muted">- @acme/docs apps/docs — skipped, private</span>
+
+<span class="c-red">packproof: 1 problem your users would hit, in 1 of 2 packages (@acme/cli).</span></pre>
+  </div>
+  <pre class="block"><span class="c-comment"># the whole workspace</span>
+packproof --workspaces
+
+<span class="c-comment"># one package, by name or by directory</span>
+packproof --workspace @acme/core
+packproof --workspace packages/core
+
+<span class="c-comment"># one JUnit report, one testsuite per package</span>
+packproof --workspaces --format=junit --out packproof.xml</pre>
+  <p>Private packages are skipped — nobody installs them — unless you ask with <code class="inline-code">--include-private</code>. Each package keeps its own path prefix, so <code class="inline-code">--format=github</code> annotates <code>packages/core/src/a.js</code> and not <code>src/a.js</code>, and <code class="inline-code">--format=junit</code> emits one <code>&lt;testsuite&gt;</code> per package inside a single <code>&lt;testsuites&gt;</code>. Exit code <strong>1</strong> if <em>any</em> package has a problem your users would hit.</p>
+  <table>
+    <tr><th>A sibling dependency</th><th></th></tr>
+    <tr><td><code>workspace-sibling-dependency</code></td><td class="desc">a clean room installs from the registry, so a tarball that depends on another package in your workspace can only be proved once that sibling is published at a version the range resolves to. packproof reports this as its own kind — not <code>undeclared-dependency</code>, because the dependency <em>is</em> declared; it just isn't reachable from outside your checkout</td></tr>
+    <tr><td><code>workspace:*</code> is the sharp case</td><td class="desc"><code>npm pack</code> leaves a <code>workspace:</code> range in the tarball verbatim, so publishing it ships a version nobody can install. packproof says so rather than linking a sibling in and calling it a pass</td></tr>
+    <tr><td>if the sibling <em>is</em> published</td><td class="desc">the install resolves it from the registry, the package passes, and packproof notes where the dependency came from</td></tr>
+  </table>
+  <p class="muted" style="margin-top:16px">Releasing a monorepo honestly means publishing the leaves first, then proving the packages above them with <code>--registry</code>.</p>
 </section>
 
 <section id="ci">
@@ -237,6 +279,9 @@ npm i -D packproof</pre>
   <h2>Options</h2>
   <table>
     <tr><th>Flag</th><th>What it does</th></tr>
+    <tr><td><code>--workspaces</code></td><td class="desc">prove every package the workspace declares, one clean room each; private packages are skipped</td></tr>
+    <tr><td><code>--workspace &lt;name&gt;</code></td><td class="desc">only this workspace package — its name or its directory; repeatable, and implies <code>--workspaces</code></td></tr>
+    <tr><td><code>--include-private</code></td><td class="desc">don't skip private workspace packages</td></tr>
     <tr><td><code>--registry [spec]</code></td><td class="desc">prove a published package instead of the local tree — <code>pkg</code>, <code>pkg@1.2.3</code> or <code>pkg@tag</code>, defaulting to this package at its latest tag</td></tr>
     <tr><td><code>--registry-url &lt;u&gt;</code></td><td class="desc">registry to ask (default <code>https://registry.npmjs.org</code>)</td></tr>
     <tr><td><code>--json</code></td><td class="desc">machine-readable output (same as <code>--format=json</code>)</td></tr>
@@ -270,7 +315,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. No workspace/monorepo awareness yet — point it at one package at a time. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
 </section>
 
 </div>
