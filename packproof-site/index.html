@@ -97,6 +97,7 @@
       <a class="btn primary" href="#install">Install</a>
       <a class="btn ghost" href="#registry">Prove a published version</a>
       <a class="btn ghost" href="#workspaces">Monorepos</a>
+      <a class="btn ghost" href="#shipped">Leaked files</a>
       <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
@@ -106,6 +107,7 @@
       <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
 <pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof</span>
 <span class="c-cmd">my-package@2.3.0</span> <span class="c-muted">— 3 files packed</span>
+  <span class="c-green">✓</span> shipped files <span class="c-muted">— 3 files, no credentials or cruft</span>
   <span class="c-green">✓</span> npm install &lt;tarball&gt;
   <span class="c-red">✗ import "my-package"</span> <span class="c-yellow">[undeclared-dependency]</span>
       <span class="c-muted">"kleur" is required at runtime but is only in devDependencies,
@@ -141,6 +143,7 @@
 <pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof --registry chalk@4.1.2 --lazy</span>
 <span class="c-cmd">chalk@4.1.2</span> <span class="c-muted">— 7 files, published to registry.npmjs.org</span>
   <span class="c-green">✓</span> fetch chalk@4.1.2 from registry <span class="c-muted">— 11.3 kB, sha512 integrity verified</span>
+  <span class="c-green">✓</span> shipped files <span class="c-muted">— 7 files, no credentials or cruft</span>
   <span class="c-green">✓</span> npm install &lt;tarball&gt;
   <span class="c-green">✓</span> import "chalk"
   <span class="c-green">✓</span> require("chalk")
@@ -221,6 +224,30 @@ packproof --workspaces --format=junit --out packproof.xml</pre>
   <p class="muted" style="margin-top:16px">If nothing depends on anything else, packproof says <code>any order works</code> instead of printing a trivial one. Private packages are left out of the order unless <code class="inline-code">--include-private</code> is given, and the order rides along in <code class="inline-code">--json</code> as <code>releaseOrder</code> (<code>waves</code>, <code>steps</code>, <code>cycles</code>) for scripting a real publish loop. Releasing a monorepo honestly means publishing the leaves first, then proving the packages above them with <code>--registry</code>.</p>
 </section>
 
+<section id="shipped">
+  <h2>What's in the tarball <span style="color:var(--muted)">that shouldn't be</span></h2>
+  <p><code class="inline-code">npm publish</code> ships whatever your <code>files</code> field and <code>.npmignore</code> leave in, and it never asks twice. A <code class="inline-code">.npmrc</code> with a live registry token, a <code class="inline-code">.env</code>, an SSH key, <code class="inline-code">.aws/credentials</code> — all of them install perfectly, which is why nothing catches them. packproof already holds the tarball's own file list, so every run reads it:</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof</span>
+<span class="c-cmd">my-app@1.4.0</span> <span class="c-muted">— 41 files packed</span>
+  <span class="c-red">✗ shipped files</span> <span class="c-yellow">[shipped-secret]</span>
+      <span class="c-yellow">this tarball contains files that normally hold credentials. Check whether they are
+      real, and keep them out with "files" in package.json or .npmignore. A published
+      version cannot be unpublished after 72 hours, and anything already published
+      should be treated as leaked.</span>
+      <span class="c-muted">.npmrc — an npm config file, which is where npm keeps registry auth tokens
+      .env.production — an environment file, which is where secrets normally live
+      also accidental: .DS_Store, coverage/lcov.info</span></pre>
+  </div>
+  <p>Cruft is <em>not</em> a failure. A <code class="inline-code">.DS_Store</code>, a shipped <code class="inline-code">node_modules</code>, coverage output, a <code>.tgz</code> inside the <code>.tgz</code> — those cost your users bytes but leak nothing, so they ride along as a note on a passing check:</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre>  <span class="c-green">✓</span> shipped files <span class="c-muted">— 41 files; 2 look accidental — .DS_Store, coverage/lcov.info</span></pre>
+  </div>
+  <p class="muted" style="margin-top:16px">This check is <strong>paths, not contents</strong>. packproof says "this is the kind of file that holds a credential" — it never opens the file to guess whether a secret is inside, so it can't be wrong about what it claims to have seen, and an empty <code>.npmrc</code> is still reported. A token hard-coded into <code>dist/index.js</code> is out of scope, and so is anything you didn't ship: the list it reads is the tarball's. Test certificates are left alone — a plain <code>.pem</code> passes, <code>private.pem</code> and <code>id_rsa</code> do not — and <code>.env.example</code> is understood to be a template. It runs before the install, so a leaked credential is named even when nothing installs.</p>
+</section>
+
 <section id="ci">
   <h2>In CI, on <span style="color:var(--muted)">the right line</span></h2>
   <p>A failure that scrolls past in a build log costs the same as no failure at all. <code class="inline-code">--format=github</code> emits GitHub Actions workflow commands instead of prose, so a <code class="inline-code">--lazy</code> finding shows up as a red annotation <strong>on the offending line of the diff</strong>.</p>
@@ -273,6 +300,10 @@ npm i -D packproof</pre>
       <p>The same specifiers through <code>createRequire</code>, because CJS consumers are still most of the ecosystem. Skipped for <code>"type": "module"</code>, where failing is correct.</p>
     </div>
     <div class="card">
+      <h3>shipped files</h3>
+      <p>The tarball's own path list, read for what should never have been in it: <code>.npmrc</code>, <code>.env</code>, private keys, key stores. Cruft is a note; credentials fail.</p>
+    </div>
+    <div class="card">
       <h3>bins</h3>
       <p>Every entry in <code>bin</code>, actually executed from <code>node_modules/.bin</code> — the only way a missing shebang or a lost <code>chmod</code> shows itself.</p>
     </div>
@@ -288,6 +319,7 @@ npm i -D packproof</pre>
     <tr><td><code>bin-missing</code></td><td class="desc">the <code>bin</code> target didn't ship</td></tr>
     <tr><td><code>install-failed</code></td><td class="desc">the tarball wouldn't install at all</td></tr>
     <tr><td><code>load-error</code></td><td class="desc">it loaded and then threw — a real crash on import</td></tr>
+    <tr><td><code>shipped-secret</code></td><td class="desc">the tarball contains a file that normally holds a credential</td></tr>
     <tr><td><code>integrity-mismatch</code></td><td class="desc"><code>--registry</code> only: the downloaded tarball isn't the bytes the registry has on record</td></tr>
   </table>
 </section>

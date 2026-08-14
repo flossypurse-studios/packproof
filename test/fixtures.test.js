@@ -58,6 +58,67 @@ test('a correct CJS package passes and is probed with both import and require', 
   const names = r.checks.map((c) => c.name);
   assert.ok(names.includes('import "pp-fixture-good-cjs"'));
   assert.ok(names.includes('require("pp-fixture-good-cjs")'));
+  // every run reports what shipped, from the tarball's own file list
+  const shipped = r.checks.find((c) => c.name === 'shipped files');
+  assert.equal(shipped.pass, true);
+  assert.match(shipped.note, new RegExp(`^${r.fileCount} files?, no credentials or cruft// End-to-end tests: each fixture is packed, installed into a real clean room,
+// and probed. These are the tests that matter — they prove the whole pipeline.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { packproof } from '../src/index.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixture = (n) => join(here, 'fixtures', n);
+const TIMEOUT = 180000;
+
+function kinds(result) {
+  return result.failures.map((f) => f.kind);
+}
+
+test('a devDependency required at runtime is caught as undeclared-dependency', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-devdep'));
+  assert.equal(r.ok, false);
+  assert.deepEqual(kinds(r), ['undeclared-dependency']);
+  assert.match(r.failures[0].hint, /pp-fixture-ghost/);
+  // npm pack and npm install both report this package as perfectly fine:
+  assert.equal(r.checks.find((c) => c.name === 'npm install <tarball>').pass, true);
+});
+
+test('a runtime file excluded from "files" is caught as missing-file', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-missing-asset'));
+  assert.equal(r.ok, false);
+  assert.deepEqual(kinds(r), ['missing-file']);
+  assert.match(r.failures[0].hint, /internal\/table\.js/);
+  assert.ok(!r.files.includes('internal/table.js'), 'the asset really is absent from the tarball');
+});
+
+test('a bin without a shebang is caught as bin-not-executable', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-bin-no-shebang'));
+  assert.equal(r.ok, false);
+  assert.deepEqual(kinds(r), ['bin-not-executable']);
+  assert.match(r.failures[0].hint, /shebang/);
+  // The entry point itself is fine; only the bin is broken.
+  assert.equal(r.checks.find((c) => c.name.startsWith('import')).pass, true);
+});
+
+test('a correct ESM package with subpath exports and a bin passes', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('good-esm'));
+  assert.deepEqual(kinds(r), []);
+  assert.equal(r.ok, true);
+  const names = r.checks.map((c) => c.name);
+  assert.ok(names.includes('import "pp-fixture-good-esm"'));
+  assert.ok(names.includes('import "pp-fixture-good-esm/util"'), 'subpath export was probed');
+  assert.ok(names.includes('bin "pp-fixture-good"'), 'bin was executed');
+  // type:module means require() is not probed, by design.
+  assert.ok(!names.some((n) => n.startsWith('require(')));
+});
+
+test('a correct CJS package passes and is probed with both import and require', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('good-cjs'));
+  assert.equal(r.ok, true);
+));
 });
 
 test('--skip-require suppresses the require probe', { timeout: TIMEOUT }, async () => {

@@ -2,6 +2,7 @@ import { makeTarball, readManifest, tarballFiles } from './pack.js';
 import { createCleanRoom, installTarball } from './cleanroom.js';
 import { checkEntries, checkRequire, checkBins } from './checks.js';
 import { checkLazyImports } from './lazy.js';
+import { checkShippedFiles } from './hygiene.js';
 import { fetchRegistryTarball, manifestFromTarball, DEFAULT_REGISTRY } from './registry.js';
 import { resolve, relative, sep } from 'node:path';
 import {
@@ -88,6 +89,9 @@ export async function packproof(target = '.', opts = {}) {
   }
 
   const files = tarballFiles(tarball);
+  // What shipped is a fact about the release on its own: report it before the
+  // install, so a leaked credential is still named even if nothing installs.
+  checks.push(checkShippedFiles(files));
   // Dependencies on other packages in the same workspace behave differently in
   // a clean room, so they are worth knowing about before the install runs.
   const siblingDeps = opts.siblingNames

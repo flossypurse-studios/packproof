@@ -59,6 +59,7 @@ A package with a leaked devDependency and a shebang-less bin:
 ```console
 $ npx packproof
 pp-fixture-broken-everything@2.3.0 — 3 files packed
+  ✓ shipped files — 3 files, no credentials or cruft
   ✓ npm install <tarball>
   ✗ import "pp-fixture-broken-everything" [undeclared-dependency]
       "kleur" is required at runtime but is only in devDependencies, where it works
@@ -77,6 +78,7 @@ And when it's fine:
 ```console
 $ npx packproof
 packproof@0.1.0 — 7 files packed
+  ✓ shipped files — 7 files, no credentials or cruft
   ✓ npm install <tarball>
   ✓ import "packproof"
   ✓ bin "packproof"
@@ -275,6 +277,13 @@ A minimal workflow step:
   still most of the ecosystem. Skipped for `"type": "module"` packages, where failing is
   correct behaviour.
 - **bins** — every entry in `bin`, actually executed from `node_modules/.bin`.
+- **shipped files** — the tarball's own path list, read for files that should never
+  have been in it: a `.npmrc` (which is where npm keeps registry auth tokens), a
+  `.env`, an SSH private key, a key store, `.aws/credentials`. Those fail the run
+  (`shipped-secret`). Cruft — `.DS_Store`, a shipped `node_modules`, coverage
+  output, a `.tgz` inside the `.tgz` — is reported as a note, because it costs
+  bytes but leaks nothing. Path matching only: packproof never reads the contents of
+  a file to decide it is a secret.
 - **lazy imports** (`--lazy`) — every `.js`/`.mjs`/`.cjs` file that actually shipped is
   read back out of the clean room and scanned for bare `import`/`require` specifiers,
   resolved against your declared dependencies. This covers a gap nothing else does: **a
@@ -284,7 +293,7 @@ A minimal workflow step:
 
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
-`workspace-sibling-dependency`, `integrity-mismatch`. The
+`workspace-sibling-dependency`, `shipped-secret`, `integrity-mismatch`. The
 classification is the useful part — "it broke" is not actionable, "your devDependency
 leaked" is.
 
@@ -351,6 +360,11 @@ runs `publint && packproof`.
 - **Workspace discovery is glob matching, not a package manager.** `*`, `**`, `?` and
   `!` negations in `workspaces` (or `pnpm-workspace.yaml`) are honoured; anything more
   exotic than that, and packproof will miss a package rather than guess.
+- **The shipped-files check is names, not contents.** It says "this path is the kind
+  of file that holds a credential", never "this file contains a secret" — so a
+  `.npmrc` with nothing in it is still reported, and a token hard-coded in
+  `dist/index.js` is not. It also cannot see a file you did not ship: the list it
+  reads is the tarball's.
 - **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
   you downloaded are the bytes the registry has on record for that version; it is not
   provenance or a signature check.
