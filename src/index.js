@@ -9,6 +9,7 @@ import {
   targetFor,
   siblingDependencies,
   siblingInstallFailure,
+  releaseOrder,
 } from './workspaces.js';
 
 /**
@@ -224,6 +225,12 @@ export async function packproofWorkspaces(target = '.', opts = {}) {
 
   const failures = [];
   for (const p of packages) for (const f of p.failures) failures.push({ ...f, package: p.name });
+
+  // The order to publish in is a property of the whole workspace, not of the
+  // subset --workspace happened to select, so it is computed over every package
+  // a stranger could install: the publishable ones.
+  const orderable = found.packages.filter((p) => !p.private || opts.includePrivate);
+  const order = releaseOrder(orderable);
   return {
     workspaces: true,
     root: targetFor(rootDir),
@@ -232,6 +239,7 @@ export async function packproofWorkspaces(target = '.', opts = {}) {
     globs: found.globs,
     packages,
     packageCount: packages.length,
+    releaseOrder: order,
     skipped,
     failures,
     ok: failures.length === 0,

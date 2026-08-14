@@ -1,0 +1,7 @@
+{
+  "name": "pp-fixture-cycle-left",
+  "version": "1.0.0",
+  "main": "index.js",
+  "files": ["index.js"],
+  "dependencies": { "pp-fixture-cycle-right": "^1.0.0" }
+}

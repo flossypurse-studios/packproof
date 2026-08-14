@@ -14,6 +14,7 @@ import {
   findWorkspacePackages,
   siblingDependencies,
   siblingInstallFailure,
+  releaseOrder,
 } from '../src/workspaces.js';
 import { junitXml, githubAnnotations } from '../src/format.js';
 
@@ -256,4 +257,180 @@ test('a single-package run is untouched by any of this', { timeout: TIMEOUT }, (
   assert.equal(a.code, 0);
   assert.match(a.stdout, /^pp-fixture-good-cjs@1\.0\.0 — \d+ files packed$/m, 'no workspace dir on a plain run');
   assert.match(a.stdout, /packproof: this package works when installed\./);
+});
+
+// --- release order ---------------------------------------------------------
+//
+// After --workspaces finds a sibling dependency, packproof knows enough to say
+// what to do about it: publish the leaves first. The contract here is that the
+// order is a topological sort over the workspace's own packages, that it is
+// deterministic, and that a genuine cycle is reported as a cycle instead of
+// being flattened into an order that cannot work.
+
+const node = (name, deps, extra = {}) => ({
+  name,
+  version: '1.0.0',
+  rel: `packages/${name}`,
+  private: false,
+  manifest: { name, version: '1.0.0', dependencies: deps || undefined, ...extra },
+});
+
+test('release order puts a dependency before the package that needs it', () => {
+  const r = releaseOrder([
+    node('c', { b: '^1.0.0' }),
+    node('a', null),
+    node('b', { a: 'workspace:*' }),
+  ]);
+  assert.deepEqual(r.cycles, []);
+  assert.deepEqual(r.steps.map((s) => [s.step, s.name, s.needs]), [
+    [1, 'a', []],
+    [2, 'b', ['a']],
+    [3, 'c', ['b']],
+  ]);
+  assert.deepEqual(r.waves, [['a'], ['b'], ['c']]);
+  assert.equal(r.edgeCount, 2);
+});
+
+test('packages that depend on nothing in the workspace share step 1', () => {
+  const r = releaseOrder([node('one', null), node('two', null), node('three', { one: '^1' })]);
+  assert.deepEqual(r.waves, [['one', 'two'], ['three']]);
+  assert.equal(r.edgeCount, 1);
+});
+
+test('a workspace with no sibling dependencies has no order to give', () => {
+  const r = releaseOrder([node('one', null), node('two', null)]);
+  assert.equal(r.edgeCount, 0);
+  assert.deepEqual(r.waves, [['one', 'two']]);
+  assert.deepEqual(r.cycles, []);
+});
+
+test('release order ignores ranges on packages outside the workspace', () => {
+  const r = releaseOrder([node('one', { lodash: '^4' }), node('two', { one: '^1', react: '^18' })]);
+  assert.equal(r.edgeCount, 1);
+  assert.deepEqual(r.waves, [['one'], ['two']]);
+});
+
+test('a dependency declared twice counts as one edge', () => {
+  const r = releaseOrder([node('one', null), node('two', { one: '^1' }, { peerDependencies: { one: '^1' } })]);
+  assert.equal(r.edgeCount, 1);
+  assert.deepEqual(r.steps[1].needs, ['one']);
+});
+
+test('a cycle is reported as a cycle instead of a bogus order', () => {
+  const r = releaseOrder([node('a', { b: '^1' }), node('b', { a: '^1' }), node('c', { a: '^1' })]);
+  assert.equal(r.steps, null, 'no order is claimed when none exists');
+  assert.equal(r.waves, null);
+  assert.equal(r.cycles.length, 1);
+  assert.deepEqual(r.cycles[0].packages, ['a', 'b']);
+  assert.deepEqual(r.cycles[0].path, ['a', 'b', 'a']);
+  // c is not in the cycle but cannot be ordered either, and says so
+  assert.deepEqual(r.unordered, ['a', 'b', 'c']);
+});
+
+test('two independent cycles are reported separately', () => {
+  const r = releaseOrder([
+    node('a', { b: '^1' }),
+    node('b', { a: '^1' }),
+    node('y', { z: '^1' }),
+    node('z', { y: '^1' }),
+  ]);
+  assert.deepEqual(
+    r.cycles.map((c) => c.packages),
+    [['a', 'b'], ['y', 'z']]
+  );
+});
+
+test('a package that depends on itself is not a cycle', () => {
+  const r = releaseOrder([node('a', { a: '^1' }), node('b', { a: '^1' })]);
+  assert.deepEqual(r.cycles, []);
+  assert.deepEqual(r.waves, [['a'], ['b']]);
+});
+
+test('release order is discovered from a real workspace on disk', () => {
+  const found = findWorkspacePackages(fixture('monorepo-chain'));
+  const r = releaseOrder(found.packages);
+  assert.deepEqual(r.steps.map((s) => s.name), [
+    'pp-fixture-chain-a',
+    'pp-fixture-chain-b',
+    'pp-fixture-chain-c',
+  ]);
+  // c needs both, through dependencies and peerDependencies
+  assert.deepEqual(r.steps[2].needs, ['pp-fixture-chain-a', 'pp-fixture-chain-b']);
+  assert.deepEqual(r.steps[1].dir, 'packages/b');
+});
+
+test('a cycle on disk is reported honestly', () => {
+  const found = findWorkspacePackages(fixture('monorepo-cycle'));
+  const r = releaseOrder(found.packages);
+  assert.equal(r.steps, null);
+  assert.deepEqual(r.cycles[0].packages, ['pp-fixture-cycle-left', 'pp-fixture-cycle-right']);
+});
+
+test('the release order rides along on the workspace result', { timeout: TIMEOUT }, async () => {
+  // --workspace narrows what gets proved; the order is still the whole
+  // workspace's, because that is the question it answers.
+  const r = await packproofWorkspaces(fixture('monorepo-chain'), { workspace: ['pp-fixture-chain-a'] });
+  assert.equal(r.packageCount, 1);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.releaseOrder.steps.map((s) => s.name), [
+    'pp-fixture-chain-a',
+    'pp-fixture-chain-b',
+    'pp-fixture-chain-c',
+  ]);
+  assert.deepEqual(r.releaseOrder.cycles, []);
+});
+
+test('private packages are left out of the release order', { timeout: TIMEOUT }, async () => {
+  const r = await packproofWorkspaces(fixture('monorepo-basic'), { workspace: ['pp-fixture-mono-alpha'] });
+  assert.deepEqual(r.releaseOrder.waves, [['pp-fixture-mono-alpha', 'pp-fixture-mono-beta']]);
+  const withPrivate = await packproofWorkspaces(fixture('monorepo-basic'), {
+    workspace: ['pp-fixture-mono-alpha'],
+    includePrivate: true,
+  });
+  assert.ok(withPrivate.releaseOrder.waves[0].includes('pp-fixture-mono-web'));
+});
+
+test('the CLI prints the release order after the package sections', { timeout: TIMEOUT }, () => {
+  const r = run(['test/fixtures/monorepo-chain', '--workspace', 'pp-fixture-chain-a']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /^release order — 3 steps/m);
+  assert.match(r.stdout, /^ {2}1\. pp-fixture-chain-a$/m);
+  assert.match(r.stdout, /^ {2}2\. pp-fixture-chain-b +— needs pp-fixture-chain-a$/m);
+  assert.match(r.stdout, /^ {2}3\. pp-fixture-chain-c +— needs pp-fixture-chain-a, pp-fixture-chain-b$/m);
+  // the summary still has the last word
+  const orderAt = r.stdout.indexOf('release order');
+  assert.ok(orderAt > r.stdout.indexOf('pp-fixture-chain-a@1.0.0'));
+  assert.ok(orderAt < r.stdout.indexOf('packproof: all 1 package works'));
+});
+
+test('the CLI says so when no package depends on another', { timeout: TIMEOUT }, () => {
+  const r = run(['test/fixtures/monorepo-basic', '--workspaces']);
+  assert.match(r.stdout, /^release order — any order works: no package here depends on another$/m);
+});
+
+test('the CLI reports a cycle instead of an order', { timeout: TIMEOUT }, () => {
+  const r = run(['test/fixtures/monorepo-cycle', '--workspace', 'pp-fixture-cycle-left']);
+  assert.match(r.stdout, /^release order — none exists \[workspace-dependency-cycle\]$/m);
+  assert.match(r.stdout, /pp-fixture-cycle-left → pp-fixture-cycle-right → pp-fixture-cycle-left/);
+  assert.match(r.stdout, /depend on each other/);
+});
+
+test('--workspaces --json carries the release order for machines', { timeout: TIMEOUT }, () => {
+  const r = run(['test/fixtures/monorepo-chain', '--workspaces', '--workspace', 'pp-fixture-chain-a', '--json']);
+  assert.equal(r.code, 0);
+  const j = JSON.parse(r.stdout);
+  assert.deepEqual(j.releaseOrder.waves, [
+    ['pp-fixture-chain-a'],
+    ['pp-fixture-chain-b'],
+    ['pp-fixture-chain-c'],
+  ]);
+  assert.equal(j.releaseOrder.cycles.length, 0);
+  // b needs a (1 edge); c needs b (dependencies) and a (peerDependencies) — 2 more.
+  assert.equal(j.releaseOrder.edgeCount, 3);
+});
+
+test('a single-package run has no release order at all', { timeout: TIMEOUT }, () => {
+  const r = run(['test/fixtures/good-cjs', '--json']);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.releaseOrder, undefined, 'release order is a workspace question only');
 });

@@ -186,3 +186,139 @@ export function siblingInstallFailure(stderr, siblingDeps) {
   const named = siblingDeps.filter((d) => text.includes(d.name));
   return named.length ? named : null;
 }
+
+/**
+ * Every elementary-enough cycle in a subgraph: one entry per strongly connected
+ * component that has an edge back into itself, with a concrete path through it
+ * so the report can name the loop rather than just its members. Tarjan, then a
+ * depth-first walk inside each component to find one closed path.
+ */
+function findCycles(names, needs) {
+  const index = new Map();
+  const low = new Map();
+  const onStack = new Set();
+  const stack = [];
+  const components = [];
+  let counter = 0;
+
+  const edgesFrom = (n) => (needs.get(n) || []).map((d) => d.name).filter((m) => names.has(m));
+
+  const strongconnect = (v) => {
+    index.set(v, counter);
+    low.set(v, counter);
+    counter++;
+    stack.push(v);
+    onStack.add(v);
+    for (const w of edgesFrom(v)) {
+      if (!index.has(w)) {
+        strongconnect(w);
+        low.set(v, Math.min(low.get(v), low.get(w)));
+      } else if (onStack.has(w)) {
+        low.set(v, Math.min(low.get(v), index.get(w)));
+      }
+    }
+    if (low.get(v) === index.get(v)) {
+      const comp = [];
+      let w;
+      do {
+        w = stack.pop();
+        onStack.delete(w);
+        comp.push(w);
+      } while (w !== v);
+      components.push(comp);
+    }
+  };
+  for (const n of [...names].sort()) if (!index.has(n)) strongconnect(n);
+
+  const cycles = [];
+  for (const comp of components) {
+    const members = new Set(comp);
+    const selfLoop = comp.length === 1 && edgesFrom(comp[0]).includes(comp[0]);
+    if (comp.length < 2 && !selfLoop) continue;
+    const start = [...comp].sort()[0];
+    // walk inside the component until we come back to where we started
+    const path = [];
+    const seen = new Set();
+    const walk = (v) => {
+      path.push(v);
+      seen.add(v);
+      for (const w of edgesFrom(v).filter((x) => members.has(x)).sort()) {
+        if (w === start) {
+          path.push(start);
+          return true;
+        }
+        if (!seen.has(w) && walk(w)) return true;
+      }
+      path.pop();
+      return false;
+    };
+    walk(start);
+    cycles.push({ packages: [...comp].sort(), path });
+  }
+  cycles.sort((a, b) => (a.packages[0] < b.packages[0] ? -1 : 1));
+  return cycles;
+}
+
+/**
+ * The order to publish a workspace's packages in.
+ *
+ * A sibling dependency can only be satisfied from the registry, so the package
+ * it points at has to be published first. This builds the graph over the
+ * workspace's own package names (from dependencies / optionalDependencies /
+ * peerDependencies) and topologically sorts it, leaves first. Packages in the
+ * same step depend on nothing else in that step, so they can go out together.
+ *
+ * A real cycle has no such order, so none is offered: `steps` and `waves` come
+ * back null and `cycles` says what loops, because a plausible-looking order
+ * that cannot work is worse than an honest no.
+ */
+export function releaseOrder(packages) {
+  const byName = new Map();
+  for (const p of packages) byName.set(p.name, p);
+  const names = new Set(byName.keys());
+
+  const needs = new Map();
+  let edgeCount = 0;
+  for (const p of packages) {
+    const deduped = new Map();
+    for (const d of siblingDependencies(p.manifest, names)) {
+      if (d.name === p.name) continue; // a package is not its own predecessor
+      if (!deduped.has(d.name)) deduped.set(d.name, d);
+    }
+    needs.set(p.name, [...deduped.values()]);
+    edgeCount += deduped.size;
+  }
+
+  // Kahn's algorithm, alphabetical inside each step so the answer never moves.
+  const remaining = new Set(names);
+  const waves = [];
+  while (remaining.size) {
+    const ready = [...remaining]
+      .filter((n) => needs.get(n).every((d) => !remaining.has(d.name)))
+      .sort();
+    if (!ready.length) break; // everything left is in or behind a cycle
+    waves.push(ready);
+    for (const n of ready) remaining.delete(n);
+  }
+
+  const cycles = remaining.size ? findCycles(remaining, needs) : [];
+  const steps = waves.flatMap((wave, i) =>
+    wave.map((name) => ({
+      step: i + 1,
+      name,
+      version: byName.get(name).version ?? null,
+      dir: byName.get(name).rel ?? null,
+      needs: needs.get(name).map((d) => d.name).sort(),
+    }))
+  );
+
+  return {
+    packageCount: packages.length,
+    edgeCount,
+    stepCount: cycles.length ? null : waves.length,
+    steps: cycles.length ? null : steps,
+    waves: cycles.length ? null : waves,
+    cycles,
+    unordered: [...remaining].sort(),
+  };
+}

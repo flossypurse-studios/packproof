@@ -153,6 +153,43 @@ function printPackage(r) {
   if (r.room) console.log(c.dim(`\nclean room kept at ${r.room}`));
 }
 
+/**
+ * What to publish first. Only worth printing when there is more than one
+ * package to order; a cycle prints the loop instead of an order, because there
+ * is no order that works.
+ */
+function printReleaseOrder(order) {
+  if (!order || order.packageCount < 2) return;
+  if (order.cycles.length) {
+    console.log(`${c.bold('release order')} — none exists ${c.dim('[workspace-dependency-cycle]')}`);
+    for (const cyc of order.cycles) console.log(`  ${c.red(cyc.path.join(' → '))}`);
+    console.log(
+      c.yellow(
+        `  these packages depend on each other, so none of them can be published first at a version\n` +
+          `  the others' ranges resolve to. Break the cycle — or publish them together, by hand, once.`
+      )
+    );
+    if (order.unordered.length > order.cycles.reduce((n, cy) => n + cy.packages.length, 0)) {
+      console.log(c.dim(`  waiting behind it: ${order.unordered.join(', ')}`));
+    }
+    return;
+  }
+  if (!order.edgeCount) {
+    console.log(`${c.bold('release order')} — ${c.dim('any order works: no package here depends on another')}`);
+    return;
+  }
+  console.log(
+    `${c.bold('release order')} — ${order.stepCount} step${order.stepCount === 1 ? '' : 's'}, ` +
+      c.dim('leaves first: publish each step before the next')
+  );
+  const width = Math.max(...order.steps.map((s) => s.name.length));
+  for (const step of order.steps) {
+    const needs = step.needs.length ? c.dim(` — needs ${step.needs.join(', ')}`) : '';
+    const pad = step.needs.length ? ' '.repeat(width - step.name.length) : '';
+    console.log(`  ${step.step}. ${step.name}${pad}${needs}`);
+  }
+}
+
 if (result.workspaces) {
   const n = result.packageCount;
   console.log(
@@ -168,6 +205,9 @@ if (result.workspaces) {
     console.log(c.dim(`- ${s.name} ${s.dir} — skipped, ${s.reason}`));
   }
   if (result.skipped.length) console.log('');
+  const printed = result.releaseOrder && result.releaseOrder.packageCount > 1;
+  printReleaseOrder(result.releaseOrder);
+  if (printed) console.log('');
   const bad = result.packages.filter((r) => !r.ok);
   console.log(
     result.ok

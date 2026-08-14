@@ -198,6 +198,34 @@ is the sharp case: `npm pack` leaves it in the tarball verbatim, so publishing i
 a version nobody can install. If the sibling *is* published and resolves, the install
 passes and packproof notes where it came from.
 
+**Once packproof knows about sibling dependencies, it knows enough to say what order to
+publish them in.** With more than one package in the workspace, `--workspaces` prints a
+release order for free — a topological sort over the packages' own dependencies on each
+other, leaves first:
+
+```
+release order — 3 steps, leaves first: publish each step before the next
+  1. @acme/core
+  2. @acme/utils   — needs @acme/core
+  3. @acme/cli     — needs @acme/core, @acme/utils
+```
+
+If nothing in the workspace depends on anything else in it, packproof says so instead of
+printing a trivial order (`any order works`). If two packages depend on each other —
+directly or through a longer chain — there is no order that works, and packproof says
+that instead of guessing:
+
+```
+release order — none exists [workspace-dependency-cycle]
+  @acme/a → @acme/b → @acme/a
+  these packages depend on each other, so none of them can be published first at a version
+  the others' ranges resolve to. Break the cycle — or publish them together, by hand, once.
+```
+
+The order only covers packages a stranger could install — private packages are left out
+unless `--include-private` is given — and it rides along in `--json` as `releaseOrder`
+(`waves`, `steps`, `cycles`) for scripting a real publish loop.
+
 ### In CI (`--format=github`, `--format=junit`)
 
 ```sh

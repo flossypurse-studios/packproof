@@ -201,7 +201,24 @@ packproof --workspaces --format=junit --out packproof.xml</pre>
     <tr><td><code>workspace:*</code> is the sharp case</td><td class="desc"><code>npm pack</code> leaves a <code>workspace:</code> range in the tarball verbatim, so publishing it ships a version nobody can install. packproof says so rather than linking a sibling in and calling it a pass</td></tr>
     <tr><td>if the sibling <em>is</em> published</td><td class="desc">the install resolves it from the registry, the package passes, and packproof notes where the dependency came from</td></tr>
   </table>
-  <p class="muted" style="margin-top:16px">Releasing a monorepo honestly means publishing the leaves first, then proving the packages above them with <code>--registry</code>.</p>
+  <p>Once packproof knows about sibling dependencies, it knows enough to say what order to publish them in. With more than one package in the workspace, <code class="inline-code">--workspaces</code> prints a release order for free: a topological sort over the packages' own dependencies on each other, leaves first.</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-cmd">release order</span> <span class="c-muted">— 3 steps, leaves first: publish each step before the next</span>
+  1. @acme/core
+  2. @acme/utils   <span class="c-muted">— needs @acme/core</span>
+  3. @acme/cli     <span class="c-muted">— needs @acme/core, @acme/utils</span></pre>
+  </div>
+  <p>If two packages depend on each other — directly, or through a longer chain — there is no order that works, and packproof says that instead of guessing:</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-cmd">release order</span> <span class="c-muted">— none exists</span> <span class="c-yellow">[workspace-dependency-cycle]</span>
+  <span class="c-red">@acme/a → @acme/b → @acme/a</span>
+  <span class="c-muted">these packages depend on each other, so none of them can be published first at a
+  version the others' ranges resolve to. Break the cycle — or publish them together,
+  by hand, once.</span></pre>
+  </div>
+  <p class="muted" style="margin-top:16px">If nothing depends on anything else, packproof says <code>any order works</code> instead of printing a trivial one. Private packages are left out of the order unless <code class="inline-code">--include-private</code> is given, and the order rides along in <code class="inline-code">--json</code> as <code>releaseOrder</code> (<code>waves</code>, <code>steps</code>, <code>cycles</code>) for scripting a real publish loop. Releasing a monorepo honestly means publishing the leaves first, then proving the packages above them with <code>--registry</code>.</p>
 </section>
 
 <section id="ci">

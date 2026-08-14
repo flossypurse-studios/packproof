@@ -1,0 +1,8 @@
+{
+  "name": "pp-fixture-chain-c",
+  "version": "1.0.0",
+  "main": "index.js",
+  "files": ["index.js"],
+  "dependencies": { "pp-fixture-chain-b": "workspace:*" },
+  "peerDependencies": { "pp-fixture-chain-a": "^1.0.0" }
+}
