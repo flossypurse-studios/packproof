@@ -3,6 +3,7 @@ import { createCleanRoom, installTarball } from './cleanroom.js';
 import { checkEntries, checkRequire, checkBins } from './checks.js';
 import { checkLazyImports } from './lazy.js';
 import { checkShippedFiles } from './hygiene.js';
+import { diffAgainstPublished } from './diff.js';
 import { fetchRegistryTarball, manifestFromTarball, DEFAULT_REGISTRY } from './registry.js';
 import { resolve, relative, sep } from 'node:path';
 import {
@@ -92,6 +93,21 @@ export async function packproof(target = '.', opts = {}) {
   // What shipped is a fact about the release on its own: report it before the
   // install, so a leaked credential is still named even if nothing installs.
   checks.push(checkShippedFiles(files));
+  // What the last release shipped is the only honest baseline for what this one
+  // should contain, and asking the registry costs one request. Before the install,
+  // because it is a fact about the file list and needs nothing installed.
+  let fileDiff = null;
+  if (opts.diff) {
+    const got = await diffAgainstPublished({
+      manifest,
+      files,
+      diff: opts.diff,
+      registryUrl: opts.registryUrl || DEFAULT_REGISTRY,
+      currentVersion: manifest.version,
+    });
+    checks.push(got.check);
+    fileDiff = got.diff;
+  }
   // Dependencies on other packages in the same workspace behave differently in
   // a clean room, so they are worth knowing about before the install runs.
   const siblingDeps = opts.siblingNames
@@ -132,7 +148,7 @@ export async function packproof(target = '.', opts = {}) {
           detail,
         });
       }
-      return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry });
+      return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff });
     }
     checks.push({
       name: 'npm install <tarball>',
@@ -153,10 +169,10 @@ export async function packproof(target = '.', opts = {}) {
   } finally {
     if (!opts.keep) room.cleanup();
   }
-  return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry });
+  return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff });
 }
 
-function finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry }) {
+function finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff }) {
   const failed = checks.filter((c) => !c.pass);
   return {
     name: manifest.name,
@@ -164,6 +180,7 @@ function finish({ manifest, tarball, packed, files, checks, started, room, opts,
     source: source || 'local',
     pathPrefix: source === 'registry' ? null : pathPrefixFor(opts.target ?? null),
     registry: registry || null,
+    diff: fileDiff || null,
     tarball,
     packed,
     files,

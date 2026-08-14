@@ -29,6 +29,11 @@ Options
                       package's name at its latest tag). The tarball is
                       checked against the integrity the registry published.
   --registry-url <u>  registry to ask (default https://registry.npmjs.org)
+  --diff [version]    compare the shipped file list against an already-published
+                      version (default: this package's latest). A path the
+                      published package.json pointed at that is gone fails the
+                      run; any other file that stopped shipping is named. Catches
+                      what nothing loads and no probe can see.
   --json              machine-readable output (same as --format=json)
   --format <fmt>      human (default), json, github or junit.
                       github prints GitHub Actions annotations, so a failure
@@ -57,6 +62,12 @@ function parse(argv) {
       else opts.registry = argv[++i];
     }
     else if (a === '--registry-url') opts.registryUrl = String(argv[++i] ?? '');
+    else if (a === '--diff') {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith('-')) opts.diff = true;
+      else opts.diff = argv[++i];
+    }
+    else if (a.startsWith('--diff=')) opts.diff = a.slice('--diff='.length) || true;
     else if (a === '--workspaces') opts.workspaces = true;
     else if (a === '--workspace') { (opts.workspace ||= []).push(String(argv[++i] ?? '')); opts.workspaces = true; }
     else if (a.startsWith('--workspace=')) { (opts.workspace ||= []).push(a.slice('--workspace='.length)); opts.workspaces = true; }
@@ -97,6 +108,14 @@ if (opts.unknown) { console.error(`packproof: unknown option ${opts.unknown}\n`)
 
 if (opts.workspaces && opts.registry) {
   console.error('packproof: --workspaces proves a checkout and --registry proves a published version — pick one');
+  process.exit(2);
+}
+
+if (opts.workspaces && opts.diff && opts.diff !== true) {
+  console.error(
+    'packproof: --diff with a version proves one package, but --workspaces has several — ' +
+      'use a bare --diff so each package compares against its own published latest'
+  );
   process.exit(2);
 }
 

@@ -109,6 +109,7 @@ packproof [path-or-tarball] [options]
   --include-private   do not skip private workspace packages
   --registry [spec]   prove a published package instead of the local tree
   --registry-url <u>  registry to ask (default https://registry.npmjs.org)
+  --diff [version]    compare the shipped file list against a published version
   --json              machine-readable output (same as --format=json)
   --format <fmt>      human (default), json, github or junit
   --out <file>        write the formatted report to a file instead of stdout
@@ -152,6 +153,57 @@ resolved, because packproof's answer is about one specific set of bytes and shou
 change under you. `--registry-url` points at a private or mirrored registry (the
 `PACKPROOF_REGISTRY`-style env var is deliberately absent: the registry you proved
 against is printed in the output and recorded in `--json`).
+
+### What stopped shipping (`--diff`)
+
+```sh
+packproof --diff                      # this tarball vs your latest published version
+packproof --diff 1.4.2                # vs an exact earlier version
+packproof --registry pkg@2.0.0 --diff 1.9.0   # two published releases, compared
+```
+
+Every other check in packproof asks whether what you shipped *works*. This one asks
+whether you shipped **everything you used to**, because that failure is invisible to
+execution: a template, a `.wasm` blob, a locale JSON, a `.d.ts`, a whole `dist/` — anything
+nothing loads at import time — can silently drop out of the file list when someone edits
+`files` or adds an `.npmignore` rule, and every probe still passes.
+
+The last release is the only honest baseline for what a package is supposed to contain,
+and it is one request away:
+
+```
+mypkg@2.0.0 — 31 files packed
+  ✓ npm install <tarball>
+  ✓ import "mypkg"
+  ✓ shipped files — 31 files, no credentials or cruft
+  ✗ shipped files vs mypkg@1.9.0 [dropped-entry-point]
+      this release stops shipping something the last one resolved imports to. Nothing
+      installed here caught it because nothing loads these paths — an import of them just
+      stops working. Check "files" in package.json and your .npmignore, or say plainly in
+      the changelog that this is a breaking change.
+      43 files → 31
+      1 path the published mypkg@1.9.0 package.json pointed at is not in this tarball: dist/locales/index.js
+      also gone: dist/locales/de.json, dist/locales/fr.json and 9 more
+```
+
+The line between failing and merely reporting is the same one the shipped-files check
+draws — a fact, never a guess about your intent:
+
+- **A path the published `package.json` pointed at** (`main`, `module`, `types`,
+  `browser`, `exports` including its `*` wildcards, `bin`) that is gone **fails** the run
+  as `dropped-entry-point`. Somebody's `import 'pkg/thing'` used to land on a file and now
+  lands on nothing.
+- **Types that stop shipping entirely** — the previous version shipped `.d.ts` files and
+  this one ships none — **fails** as `dropped-types`. Nothing at runtime imports a
+  declaration file, so no probe on earth would notice.
+- **Everything else that is gone is named, on a passing check.** Deleting an internal file
+  is normal. Deciding for you whether you meant it is not packproof's job.
+
+A first release has nothing to compare against and says so, rather than failing. If the
+registry is unreachable or the version you named does not exist, that is a
+`diff-unavailable` failure on its own line — the rest of the report still stands. With
+`--workspaces`, use a bare `--diff` so each package is compared against its own published
+latest; a single explicit version across several packages is refused rather than guessed at.
 
 ### Monorepos (`--workspaces`)
 
@@ -284,6 +336,10 @@ A minimal workflow step:
   output, a `.tgz` inside the `.tgz` — is reported as a note, because it costs
   bytes but leaks nothing. Path matching only: packproof never reads the contents of
   a file to decide it is a secret.
+- **the file list against the last release** (`--diff`) — the shipped paths compared to
+  those of an already-published version. A path the published `package.json` resolved
+  imports to that is gone fails (`dropped-entry-point`), types disappearing entirely fails
+  (`dropped-types`), and any other file that stopped shipping is named on a passing check.
 - **lazy imports** (`--lazy`) — every `.js`/`.mjs`/`.cjs` file that actually shipped is
   read back out of the clean room and scanned for bare `import`/`require` specifiers,
   resolved against your declared dependencies. This covers a gap nothing else does: **a
@@ -293,7 +349,8 @@ A minimal workflow step:
 
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
-`workspace-sibling-dependency`, `shipped-secret`, `integrity-mismatch`. The
+`workspace-sibling-dependency`, `shipped-secret`, `dropped-entry-point`, `dropped-types`,
+`diff-unavailable`, `integrity-mismatch`. The
 classification is the useful part — "it broke" is not actionable, "your devDependency
 leaked" is.
 
@@ -365,6 +422,12 @@ runs `publint && packproof`.
   `.npmrc` with nothing in it is still reported, and a token hard-coded in
   `dist/index.js` is not. It also cannot see a file you did not ship: the list it
   reads is the tarball's.
+- **`--diff` compares paths, and only against one version.** It does not read a file to
+  see whether its contents changed, it cannot tell a rename from a deletion plus an
+  addition (both are reported, side by side, and you decide), and the baseline is whatever
+  single version you named — not every version you have ever published. It needs the
+  network, and it fails loudly (`diff-unavailable`) rather than quietly passing when it
+  cannot reach the registry.
 - **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
   you downloaded are the bytes the registry has on record for that version; it is not
   provenance or a signature check.

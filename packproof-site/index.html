@@ -98,6 +98,7 @@
       <a class="btn ghost" href="#registry">Prove a published version</a>
       <a class="btn ghost" href="#workspaces">Monorepos</a>
       <a class="btn ghost" href="#shipped">Leaked files</a>
+      <a class="btn ghost" href="#diff">What stopped shipping</a>
       <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
@@ -248,6 +249,38 @@ packproof --workspaces --format=junit --out packproof.xml</pre>
   <p class="muted" style="margin-top:16px">This check is <strong>paths, not contents</strong>. packproof says "this is the kind of file that holds a credential" — it never opens the file to guess whether a secret is inside, so it can't be wrong about what it claims to have seen, and an empty <code>.npmrc</code> is still reported. A token hard-coded into <code>dist/index.js</code> is out of scope, and so is anything you didn't ship: the list it reads is the tarball's. Test certificates are left alone — a plain <code>.pem</code> passes, <code>private.pem</code> and <code>id_rsa</code> do not — and <code>.env.example</code> is understood to be a template. It runs before the install, so a leaked credential is named even when nothing installs.</p>
 </section>
 
+<section id="diff">
+  <h2>What <span style="color:var(--muted)">stopped shipping</span></h2>
+  <p>Every other check here asks whether what you shipped <em>works</em>. This one asks whether you shipped <strong>everything you used to</strong> — because that failure is invisible to execution. A template, a <code class="inline-code">.wasm</code> blob, a locale JSON, a <code>.d.ts</code>, a whole <code class="inline-code">dist/</code>: anything nothing loads at import time can drop out of the tarball when someone edits <code>files</code> or adds an <code>.npmignore</code> rule, and every probe still passes. The last release is the only honest baseline for what a package is supposed to contain, and it's one request away.</p>
+  <pre class="block">packproof --diff                              <span class="c-comment"># vs your latest published version</span>
+packproof --diff 1.4.2                        <span class="c-comment"># vs an exact earlier version</span>
+packproof --registry pkg@2.0.0 --diff 1.9.0   <span class="c-comment"># two published releases, compared</span></pre>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof --diff</span>
+<span class="c-cmd">my-pkg@2.0.0</span> <span class="c-muted">— 31 files packed</span>
+  <span class="c-green">✓</span> npm install &lt;tarball&gt;
+  <span class="c-green">✓</span> import "my-pkg"
+  <span class="c-green">✓</span> shipped files <span class="c-muted">— 31 files, no credentials or cruft</span>
+  <span class="c-red">✗ shipped files vs my-pkg@1.9.0</span> <span class="c-yellow">[dropped-entry-point]</span>
+      <span class="c-yellow">this release stops shipping something the last one resolved imports to. Nothing
+      installed here caught it because nothing loads these paths — an import of them
+      just stops working. Check "files" in package.json and your .npmignore, or say
+      plainly in the changelog that this is a breaking change.</span>
+      <span class="c-muted">43 files → 31
+      1 path the published my-pkg@1.9.0 package.json pointed at is not in this tarball: dist/locales/index.js
+      also gone: dist/locales/de.json, dist/locales/fr.json and 9 more</span></pre>
+  </div>
+  <p>The line between failing and merely reporting is the same one the leaked-files check draws: a fact, never a guess about what you meant.</p>
+  <table>
+    <tr><th>What's gone</th><th>What packproof does</th></tr>
+    <tr><td>a path the published <code>package.json</code> pointed at — <code>main</code>, <code>module</code>, <code>types</code>, <code>browser</code>, <code>exports</code> (wildcards included), <code>bin</code></td><td class="desc"><strong>fails</strong> as <code>dropped-entry-point</code>: somebody's <code>import 'pkg/thing'</code> used to land on a file and now lands on nothing</td></tr>
+    <tr><td>every <code>.d.ts</code>, where the last version had them</td><td class="desc"><strong>fails</strong> as <code>dropped-types</code>: nothing at runtime imports a declaration file, so no probe on earth would notice</td></tr>
+    <tr><td>anything else</td><td class="desc"><strong>named, on a passing check</strong>: deleting an internal file is normal, and deciding for you whether you meant it isn't packproof's job</td></tr>
+  </table>
+  <p class="muted" style="margin-top:16px">A first release has nothing to compare against and says so rather than failing. If the registry is unreachable or the version you named doesn't exist, that's a <code>diff-unavailable</code> failure on its own line and the rest of the report still stands. It compares <strong>paths</strong>: a rename reads as a deletion beside an addition, both printed, and you decide. With <code>--workspaces</code>, a bare <code>--diff</code> compares each package against its own published latest; one explicit version across several packages is refused rather than guessed at.</p>
+</section>
+
 <section id="ci">
   <h2>In CI, on <span style="color:var(--muted)">the right line</span></h2>
   <p>A failure that scrolls past in a build log costs the same as no failure at all. <code class="inline-code">--format=github</code> emits GitHub Actions workflow commands instead of prose, so a <code class="inline-code">--lazy</code> finding shows up as a red annotation <strong>on the offending line of the diff</strong>.</p>
@@ -304,6 +337,10 @@ npm i -D packproof</pre>
       <p>The tarball's own path list, read for what should never have been in it: <code>.npmrc</code>, <code>.env</code>, private keys, key stores. Cruft is a note; credentials fail.</p>
     </div>
     <div class="card">
+      <h3>the last release</h3>
+      <p><code>--diff</code> compares the shipped paths with an already-published version. A file that silently stopped shipping is caught before the release, not after.</p>
+    </div>
+    <div class="card">
       <h3>bins</h3>
       <p>Every entry in <code>bin</code>, actually executed from <code>node_modules/.bin</code> — the only way a missing shebang or a lost <code>chmod</code> shows itself.</p>
     </div>
@@ -320,6 +357,9 @@ npm i -D packproof</pre>
     <tr><td><code>install-failed</code></td><td class="desc">the tarball wouldn't install at all</td></tr>
     <tr><td><code>load-error</code></td><td class="desc">it loaded and then threw — a real crash on import</td></tr>
     <tr><td><code>shipped-secret</code></td><td class="desc">the tarball contains a file that normally holds a credential</td></tr>
+    <tr><td><code>dropped-entry-point</code></td><td class="desc"><code>--diff</code> only: a path the published version resolved imports to is gone from this tarball</td></tr>
+    <tr><td><code>dropped-types</code></td><td class="desc"><code>--diff</code> only: the last version shipped type declarations and this one ships none</td></tr>
+    <tr><td><code>diff-unavailable</code></td><td class="desc"><code>--diff</code> only: the version to compare against could not be read, so nothing can be claimed about it</td></tr>
     <tr><td><code>integrity-mismatch</code></td><td class="desc"><code>--registry</code> only: the downloaded tarball isn't the bytes the registry has on record</td></tr>
   </table>
 </section>
@@ -333,6 +373,7 @@ npm i -D packproof</pre>
     <tr><td><code>--include-private</code></td><td class="desc">don't skip private workspace packages</td></tr>
     <tr><td><code>--registry [spec]</code></td><td class="desc">prove a published package instead of the local tree — <code>pkg</code>, <code>pkg@1.2.3</code> or <code>pkg@tag</code>, defaulting to this package at its latest tag</td></tr>
     <tr><td><code>--registry-url &lt;u&gt;</code></td><td class="desc">registry to ask (default <code>https://registry.npmjs.org</code>)</td></tr>
+    <tr><td><code>--diff [version]</code></td><td class="desc">compare the shipped file list against an already-published version (default: this package's latest) — a path the published <code>package.json</code> pointed at that is gone fails the run, anything else that stopped shipping is named</td></tr>
     <tr><td><code>--json</code></td><td class="desc">machine-readable output (same as <code>--format=json</code>)</td></tr>
     <tr><td><code>--format &lt;fmt&gt;</code></td><td class="desc"><code>human</code> (default), <code>json</code>, <code>github</code> (Actions annotations) or <code>junit</code> (JUnit XML)</td></tr>
     <tr><td><code>--out &lt;file&gt;</code></td><td class="desc">write the formatted report to a file instead of stdout</td></tr>
@@ -364,7 +405,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
 </section>
 
 </div>

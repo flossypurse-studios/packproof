@@ -116,3 +116,21 @@ test('--help mentions the CI formats', () => {
   assert.match(r.stdout, /--format/);
   assert.match(r.stdout, /github/);
 });
+
+test('--help documents --diff', () => {
+  const r = run(['--help']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /--diff \[version\]/);
+});
+
+test('--diff with a version and --workspaces is refused, not guessed at', () => {
+  const r = run(['--workspaces', '--diff', '1.0.0']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /use a bare --diff/);
+});
+
+test('a bare --diff is accepted alongside --workspaces', () => {
+  // It gets as far as workspace discovery, which is proof the guard let it past.
+  const r = run(['test/fixtures/good-cjs', '--workspaces', '--diff']);
+  assert.doesNotMatch(r.stderr || '', /use a bare --diff/);
+});
