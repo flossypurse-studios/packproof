@@ -100,6 +100,7 @@
       <a class="btn ghost" href="#shipped">Leaked files</a>
       <a class="btn ghost" href="#diff">What stopped shipping</a>
       <a class="btn ghost" href="#engines">The Node you promised</a>
+      <a class="btn ghost" href="#lanes">Run less of it</a>
       <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
@@ -320,6 +321,43 @@ steps:
   - run: npx packproof</pre>
 </section>
 
+<section id="lanes">
+  <h2>Run less of it — <span style="color:var(--muted)">and be told you did</span></h2>
+  <p>The slow part of packproof is the honest part: a real <code class="inline-code">npm install</code> of the real tarball into an empty directory. Some lanes don't want it. A pre-commit hook asking <em>"did I just stage a credential"</em> needs no install at all. A release job asking <em>"did a file quietly stop shipping"</em> needs one HTTP request. Name the checks you want:</p>
+  <pre class="block">packproof --skip install                  <span class="c-comment"># the fast lane: file list only, no install</span>
+packproof --only shipped-files            <span class="c-comment"># same thing, said the other way</span>
+packproof --diff --only shipped-files,diff
+packproof --skip engines,lazy             <span class="c-comment"># everything else, minus two probes</span></pre>
+  <table>
+    <tr><th>id</th><th>What it does</th></tr>
+    <tr><td><code>shipped-files</code></td><td class="desc">the tarball's own file list: credentials fail, cruft is noted</td></tr>
+    <tr><td><code>diff</code></td><td class="desc">file list against an already-published version (needs <code>--diff</code>)</td></tr>
+    <tr><td><code>install</code></td><td class="desc"><code>npm install</code> of the tarball into an empty project</td></tr>
+    <tr><td><code>entries</code></td><td class="desc">import every entry point in <code>exports</code>/<code>main</code>/<code>module</code></td></tr>
+    <tr><td><code>require</code></td><td class="desc"><code>require()</code> every entry point too</td></tr>
+    <tr><td><code>bins</code></td><td class="desc">execute every declared bin</td></tr>
+    <tr><td><code>engines</code></td><td class="desc">import again under the oldest Node <code>engines.node</code> accepts</td></tr>
+    <tr><td><code>lazy</code></td><td class="desc">imports hidden inside functions are declared too (needs <code>--lazy</code>)</td></tr>
+  </table>
+  <p style="margin-top:20px">The reason this feature is worth a section: <strong>a run that skipped checks says so.</strong> A green packproof that quietly looked at three of eight things is precisely the lie the tool exists to prevent — so the verdict line will not make a claim the run didn't earn.</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof --skip install</span>
+<span class="c-green">✓</span> shipped files <span class="c-muted">— 17 files, no credentials or cruft</span>
+<span class="c-muted">- install — did not run, skipped with --skip</span>
+<span class="c-muted">- entries — did not run, needs the install check, which is not running</span>
+<span class="c-muted">- require — did not run, needs the install check, which is not running</span>
+<span class="c-muted">- bins — did not run, needs the install check, which is not running</span>
+<span class="c-muted">- engines — did not run, needs the install check, which is not running</span>
+<span class="c-muted">- lazy — did not run, needs the install check, which is not running</span>
+
+<span class="c-yellow">packproof: everything this run looked at is fine — but it never installed the
+package, so it proves nothing about installing it.</span></pre>
+  </div>
+  <p class="muted" style="margin-top:16px">It carries into every format: <code>--json</code> gains <code>skippedChecks</code> (each with the reason it didn't run) alongside <code>fullRun</code> and <code>installed</code>, JUnit emits real <code>&lt;skipped&gt;</code> testcases and a <code>skipped="n"</code> count so a dashboard shows the hole rather than a shorter green bar, and <code>--format=github</code> adds a notice naming what was dropped.</p>
+  <p class="muted">Contradictions are <strong>refused</strong> with exit 2 rather than resolved by guessing. <code>--only entries --skip install</code> can't be satisfied — nothing can be imported out of a clean room that was never filled. <code>--only bins --skip bins</code> asks for and against the same thing. <code>--only diff</code> without <code>--diff</code> has nothing to compare. An unknown id prints the real ids instead of guessing at your typo. And asking for an import probe implies the install, because that's a prerequisite and not a preference.</p>
+</section>
+
 <section id="ci">
   <h2>In CI, on <span style="color:var(--muted)">the right line</span></h2>
   <p>A failure that scrolls past in a build log costs the same as no failure at all. <code class="inline-code">--format=github</code> emits GitHub Actions workflow commands instead of prose, so a <code class="inline-code">--lazy</code> finding shows up as a red annotation <strong>on the offending line of the diff</strong>.</p>
@@ -426,9 +464,11 @@ npm i -D packproof</pre>
     <tr><td><code>--out &lt;file&gt;</code></td><td class="desc">write the formatted report to a file instead of stdout</td></tr>
     <tr><td><code>--keep</code></td><td class="desc">keep the clean room and print its path, so you can go poke at it yourself</td></tr>
     <tr><td><code>--ignore-scripts</code></td><td class="desc">install with <code>--ignore-scripts</code> (packproof otherwise runs your postinstall, like a user would)</td></tr>
-    <tr><td><code>--skip-require</code></td><td class="desc">only probe ESM <code>import</code>, not <code>require()</code></td></tr>
+    <tr><td><code>--skip-require</code></td><td class="desc">only probe ESM <code>import</code>, not <code>require()</code> — the older spelling of <code>--skip require</code></td></tr>
     <tr><td><code>--lazy</code></td><td class="desc">also read back every shipped <code>.js</code>/<code>.mjs</code>/<code>.cjs</code> file and check the imports that never execute</td></tr>
     <tr><td><code>--strict</code></td><td class="desc">fail on everything packproof would otherwise only note — accidental files in the tarball, a file that stopped shipping without being a declared entry point, and a bin that runs but exits nonzero. Same findings, stricter verdict.</td></tr>
+    <tr><td><code>--only &lt;checks&gt;</code></td><td class="desc">run only these check groups — repeatable and comma-separated. Ids: <code>shipped-files</code>, <code>diff</code>, <code>install</code>, <code>entries</code>, <code>require</code>, <code>bins</code>, <code>engines</code>, <code>lazy</code></td></tr>
+    <tr><td><code>--skip &lt;checks&gt;</code></td><td class="desc">run everything except these. Skipping <code>install</code> drops every probe that needs one — and the run then says, in every format, that it never installed the package</td></tr>
     <tr><td><code>--bin-args &lt;args&gt;</code></td><td class="desc">args passed to each bin (default <code>--version</code>)</td></tr>
   </table>
 
@@ -453,7 +493,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. The <code>engines.node</code> check can only use Nodes that are <strong>installed</strong>: packproof won't download one and won't pretend, so if the oldest Node your range accepts isn't on the machine, the check passes with a note naming the Node it actually used and saying the floor is unverified — and it re-imports entry points only, not bins. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. The <code>engines.node</code> check can only use Nodes that are <strong>installed</strong>: packproof won't download one and won't pretend, so if the oldest Node your range accepts isn't on the machine, the check passes with a note naming the Node it actually used and saying the floor is unverified — and it re-imports entry points only, not bins. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check. And <code>--only</code>/<code>--skip</code> make a run <strong>weaker</strong> — that's the point, since the alternative is usually no run at all — but the exit code of <code>packproof --skip install</code> means "nothing I looked at is wrong", not "this package installs". packproof never prints the second claim after a run that didn't earn it; if your CI reads the exit code and nothing else, keep one full run somewhere before you publish.</p>
 </section>
 
 </div>
