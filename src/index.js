@@ -2,6 +2,7 @@ import { makeTarball, readManifest, tarballFiles } from './pack.js';
 import { createCleanRoom, installTarball } from './cleanroom.js';
 import { checkEntries, checkRequire, checkBins } from './checks.js';
 import { checkLazyImports } from './lazy.js';
+import { checkEngines } from './engines.js';
 import { checkShippedFiles } from './hygiene.js';
 import { diffAgainstPublished } from './diff.js';
 import { fetchRegistryTarball, manifestFromTarball, DEFAULT_REGISTRY } from './registry.js';
@@ -161,6 +162,10 @@ export async function packproof(target = '.', opts = {}) {
     checks.push(...checkEntries(room, manifest));
     if (!opts.skipRequire) checks.push(...checkRequire(room, manifest));
     checks.push(...checkBins(room, manifest, { binArgs: opts.binArgs, strict: opts.strict }));
+    // The manifest's Node floor is a promise nothing else in the toolchain keeps.
+    // Re-import under the oldest Node it claims, or say plainly that this machine
+    // has no such Node — a green line that verified nothing would be a lie.
+    checks.push(...checkEngines(room, manifest));
     if (opts.lazy) {
       // Don't say the same thing twice: if loading already blew up on a package,
       // the deep probe has nothing to add about it.

@@ -2,7 +2,7 @@
 
 **Install your npm package like a stranger would — before they do.**
 
-[Docs & site](https://packproof-site.vercel.app) · [npm](https://www.npmjs.com/package/packproof)
+[Docs & site](https://packproof-site.vercel.app) · [npm](https://www.npmjs.com/package/packproof) · [Changelog](CHANGELOG.md)
 
 ```
 npx packproof
@@ -21,6 +21,18 @@ npx packproof --registry left-pad@1.3.0
 
 That downloads the exact tarball the registry serves, checks it against the integrity hash
 the registry published for it, and clean-rooms *those bytes*. No local checkout involved.
+
+If your `package.json` says `"engines": { "node": ">=18" }`, packproof imports the
+package again under the oldest Node on this machine that the range accepts. Nothing else in
+the npm toolchain ever checks that promise. And when there is no such Node installed here,
+it says so on the check line instead of passing quietly:
+
+```
+✓ engines.node ">=18" — imported under node v18.20.4, the oldest version this range claims
+✓ engines.node ">=18" — imported under node v22.11.0, the oldest node installed here that
+                        this range accepts — no node 18 on this machine, so the floor
+                        itself is still unverified
+```
 
 In a monorepo it does every package the workspace declares, each in its own clean room:
 
@@ -308,6 +320,57 @@ The order only covers packages a stranger could install — private packages are
 unless `--include-private` is given — and it rides along in `--json` as `releaseOrder`
 (`waves`, `steps`, `cycles`) for scripting a real publish loop.
 
+### The Node you promised (`engines.node`)
+
+`engines.node` is a promise, and nothing keeps it. `npm install` prints a warning at
+worst, your CI runs one Node — usually the newest — and the first person to discover that
+your "Node 18 and up" package uses a Node 20 builtin is a stranger on Node 18.
+
+There is no flag. If the manifest declares `engines.node`, packproof finds every Node
+installed on the machine (the one it is running as, plus nvm, fnm, n, volta and asdf
+version directories), picks the **oldest** one the range accepts, and imports every entry
+point again under it:
+
+```console
+$ npx packproof
+my-pkg@2.0.0 — 12 files packed
+  ✓ shipped files — 12 files, no credentials or cruft
+  ✓ npm install <tarball>
+  ✓ import "my-pkg"
+  ✗ engines.node ">=18" [engines-unsatisfied]
+      this package says it runs on node 18 and up, but importing "my-pkg" under node
+      v18.20.4 fails: it imports a builtin module that Node version does not have.
+      Either raise engines.node to a version that works, or stop using what does not
+      exist down there. Anyone on node v18.20.4 installs this and it does not load.
+      Error: No such built-in module: node:sqlite
+```
+
+The interesting part is what happens when it *cannot* check. A green line that verified
+nothing is worse than no line at all, so packproof never prints one:
+
+| what it found | what it says |
+| --- | --- |
+| a Node of the floor's own major | `imported under node v18.20.4, which is the oldest version this range claims` |
+| only newer Nodes the range accepts | `imported under node v22.11.0 … no node 18 on this machine, so the floor itself is still unverified` (`engines-partly-verified`) |
+| no Node here the range accepts at all | `no node this range accepts is installed here, so packproof did not verify the claim` (`engines-unverified`) |
+| a range it cannot parse (`lts/hydrogen`) | `packproof does not understand this range, so it did not verify it` |
+| `*`, or no `engines` field | `accepts any version, so there is nothing to verify` — or no check line at all |
+
+Only the first row is a verified claim. The rest are still passes: not finding a Node 18
+on your laptop is a fact about your laptop, not a bug in the package — which is also why
+`--strict` does **not** promote them. To actually verify the floor, install the Node you
+claim and run packproof under it, or add one CI lane that does:
+
+```yaml
+strategy:
+  matrix:
+    node: [18, 22]      # the floor you promise, and the one you develop on
+steps:
+  - uses: actions/setup-node@v4
+    with: { node-version: ${{ matrix.node }} }
+  - run: npx packproof
+```
+
 ### In CI (`--format=github`, `--format=junit`)
 
 ```sh
@@ -357,6 +420,11 @@ A minimal workflow step:
   still most of the ecosystem. Skipped for `"type": "module"` packages, where failing is
   correct behaviour.
 - **bins** — every entry in `bin`, actually executed from `node_modules/.bin`.
+- **the Node floor** — if `engines.node` is declared, every entry point is imported again
+  under the oldest Node installed here that the range accepts. Failing there is
+  `engines-unsatisfied`: the package does not run on a Node it says it runs on. When no
+  such Node exists on the machine, the check passes but says which Node it actually used
+  and that the floor is unverified.
 - **shipped files** — the tarball's own path list, read for files that should never
   have been in it: a `.npmrc` (which is where npm keeps registry auth tokens), a
   `.env`, an SSH private key, a key store, `.aws/credentials`. Those fail the run
@@ -379,7 +447,7 @@ A minimal workflow step:
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
 `workspace-sibling-dependency`, `shipped-secret`, `dropped-entry-point`, `dropped-types`,
-`diff-unavailable`, `integrity-mismatch`, and under `--strict` also `shipped-cruft`,
+`diff-unavailable`, `integrity-mismatch`, `engines-unsatisfied`, and under `--strict` also `shipped-cruft`,
 `dropped-file`, `bin-nonzero-exit`. The
 classification is the useful part — "it broke" is not actionable, "your devDependency
 leaked" is.
@@ -453,6 +521,13 @@ runs `publint && packproof`.
   `.npmrc` with nothing in it is still reported, and a token hard-coded in
   `dist/index.js` is not. It also cannot see a file you did not ship: the list it
   reads is the tarball's.
+- **The `engines.node` check can only use Nodes that are installed.** packproof does not
+  download a Node, and it will not pretend: if the oldest Node your range accepts is not on
+  the machine, the check passes with a note naming the Node it actually used and saying the
+  floor is unverified. It looks in nvm, fnm, n, volta and asdf version directories plus the
+  Node it is running as; a Node somewhere else on your `PATH` is missed rather than
+  guessed at. It also only re-imports entry points — bins are executed once, under the
+  current Node.
 - **`--strict` promotes verdicts, it does not find more.** It turns packproof's three
   notes into failures and nothing else: no extra scanning, no new classes of finding, and
   no effect on a run that had nothing to note. If you want packproof to be quieter rather

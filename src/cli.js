@@ -11,6 +11,10 @@ throwaway project where none of your devDependencies exist, then imports
 every entry point and runs every bin. If it breaks there, it breaks for
 your users.
 
+If package.json declares engines.node, it imports the package again under
+the oldest Node on this machine that the range accepts — and when there is
+no such Node here, it says so instead of passing quietly.
+
 With --registry it skips packing and downloads an already-published
 version instead, so you can prove a release after the fact — yours or
 anyone else's. With --workspaces it does the whole monorepo, one
@@ -50,7 +54,9 @@ Options
                       accidental files in the tarball, a file that stopped
                       shipping without being a declared entry point, and a bin
                       that runs but exits nonzero. Same findings, stricter
-                      verdict — for CI that wants none of it.
+                      verdict — for CI that wants none of it. An engines.node
+                      claim this machine cannot verify is never promoted: that
+                      is a fact about the machine, not about the package.
   --bin-args <args>   args passed to each bin (default: --version)
   -h, --help          show this
   -v, --version       show packproof's version

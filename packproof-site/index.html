@@ -99,6 +99,7 @@
       <a class="btn ghost" href="#workspaces">Monorepos</a>
       <a class="btn ghost" href="#shipped">Leaked files</a>
       <a class="btn ghost" href="#diff">What stopped shipping</a>
+      <a class="btn ghost" href="#engines">The Node you promised</a>
       <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
@@ -281,6 +282,44 @@ packproof --registry pkg@2.0.0 --diff 1.9.0   <span class="c-comment"># two publ
   <p class="muted" style="margin-top:16px">A first release has nothing to compare against and says so rather than failing. If the registry is unreachable or the version you named doesn't exist, that's a <code>diff-unavailable</code> failure on its own line and the rest of the report still stands. It compares <strong>paths</strong>: a rename reads as a deletion beside an addition, both printed, and you decide. With <code>--workspaces</code>, a bare <code>--diff</code> compares each package against its own published latest; one explicit version across several packages is refused rather than guessed at.</p>
 </section>
 
+<section id="engines">
+  <h2>The Node <span style="color:var(--muted)">you promised</span></h2>
+  <p><code class="inline-code">"engines": { "node": "&gt;=18" }</code> is a promise, and nothing in the npm toolchain keeps it. <code>npm install</code> prints a warning at worst; your CI runs one Node, usually the newest; and the first person to find out that your "Node 18 and up" package uses a Node 20 builtin is a stranger on Node 18.</p>
+  <p>There is no flag for this. If the manifest declares <code>engines.node</code>, packproof finds every Node on the machine — the one it's running as, plus nvm, fnm, n, volta and asdf version directories — picks the <strong>oldest</strong> one the range accepts, and imports every entry point again under it.</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof</span>
+<span class="c-cmd">my-pkg@2.0.0</span> <span class="c-muted">— 12 files packed</span>
+  <span class="c-green">✓</span> npm install &lt;tarball&gt;
+  <span class="c-green">✓</span> import "my-pkg"
+  <span class="c-red">✗ engines.node "&gt;=18"</span> <span class="c-yellow">[engines-unsatisfied]</span>
+      <span class="c-yellow">this package says it runs on node 18 and up, but importing "my-pkg" under
+      node v18.20.4 fails: it imports a builtin module that Node version does not
+      have. Either raise engines.node to a version that works, or stop using what
+      does not exist down there. Anyone on node v18.20.4 installs this and it does
+      not load.</span>
+      <span class="c-muted">Error: No such built-in module: node:sqlite</span></pre>
+  </div>
+  <p>The interesting part is what happens when it <em>can't</em> check. A green line that verified nothing is worse than no line at all, so packproof never prints one:</p>
+  <table>
+    <tr><th>What it found</th><th>What it says</th></tr>
+    <tr><td>a Node of the floor's own major</td><td class="desc"><strong>verified</strong> — <code>imported under node v18.20.4, which is the oldest version this range claims</code></td></tr>
+    <tr><td>only newer Nodes the range accepts</td><td class="desc"><code>engines-partly-verified</code> — <code>imported under node v22.11.0 … no node 18 on this machine, so the floor itself is still unverified</code></td></tr>
+    <tr><td>no Node here the range accepts at all</td><td class="desc"><code>engines-unverified</code> — <code>no node this range accepts is installed here, so packproof did not verify the claim</code></td></tr>
+    <tr><td>a range it can't parse, like <code>lts/hydrogen</code></td><td class="desc"><code>packproof does not understand this range, so it did not verify it</code></td></tr>
+    <tr><td><code>*</code>, or no <code>engines</code> field at all</td><td class="desc"><code>accepts any version, so there is nothing to verify</code> — or no check line at all, because nothing was promised</td></tr>
+  </table>
+  <p class="muted" style="margin-top:16px">Only the first row is a verified claim; the rest are still passes. Not having a Node 18 on your laptop is a fact about your laptop, not a bug in the package — which is also why <code>--strict</code> does <strong>not</strong> promote these. To actually verify the floor, run packproof under the Node you claim, in one extra CI lane:</p>
+  <pre class="block"><span class="c-comment"># the floor you promise, and the version you develop on</span>
+strategy:
+  matrix:
+    node: [18, 22]
+steps:
+  - uses: actions/setup-node@v4
+    with: { node-version: ${{ matrix.node }} }
+  - run: npx packproof</pre>
+</section>
+
 <section id="ci">
   <h2>In CI, on <span style="color:var(--muted)">the right line</span></h2>
   <p>A failure that scrolls past in a build log costs the same as no failure at all. <code class="inline-code">--format=github</code> emits GitHub Actions workflow commands instead of prose, so a <code class="inline-code">--lazy</code> finding shows up as a red annotation <strong>on the offending line of the diff</strong>.</p>
@@ -344,6 +383,10 @@ npm i -D packproof</pre>
       <h3>bins</h3>
       <p>Every entry in <code>bin</code>, actually executed from <code>node_modules/.bin</code> — the only way a missing shebang or a lost <code>chmod</code> shows itself.</p>
     </div>
+    <div class="card">
+      <h3>the Node floor</h3>
+      <p>If <code>engines.node</code> is declared, every entry point is imported again under the oldest Node installed here that the range accepts — and when there's no such Node, it says so instead of passing quietly.</p>
+    </div>
   </div>
   <h3>Failures are classified, not just dumped</h3>
   <p class="muted">"It broke" is not actionable. "Your devDependency leaked" is.</p>
@@ -363,6 +406,7 @@ npm i -D packproof</pre>
     <tr><td><code>shipped-cruft</code></td><td class="desc"><code>--strict</code> only: accidental-looking files in the tarball, a note by default</td></tr>
     <tr><td><code>dropped-file</code></td><td class="desc"><code>--strict</code> only: a file gone since the last release that nothing declared, a note by default</td></tr>
     <tr><td><code>bin-nonzero-exit</code></td><td class="desc"><code>--strict</code> only: a bin that loads and runs but exits nonzero, a note by default</td></tr>
+    <tr><td><code>engines-unsatisfied</code></td><td class="desc">the package doesn't load on a Node version its own <code>engines.node</code> says it supports</td></tr>
     <tr><td><code>integrity-mismatch</code></td><td class="desc"><code>--registry</code> only: the downloaded tarball isn't the bytes the registry has on record</td></tr>
   </table>
 </section>
@@ -409,7 +453,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. The <code>engines.node</code> check can only use Nodes that are <strong>installed</strong>: packproof won't download one and won't pretend, so if the oldest Node your range accepts isn't on the machine, the check passes with a note naming the Node it actually used and saying the floor is unverified — and it re-imports entry points only, not bins. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
 </section>
 
 </div>

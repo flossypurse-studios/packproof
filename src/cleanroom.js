@@ -40,10 +40,10 @@ export function installTarball(room, tarball, { ignoreScripts = false, timeout =
 }
 
 /** Run a snippet of JS from inside the clean room, in its own process. */
-export function runInRoom(room, code, { timeout = 60000, esm = true } = {}) {
+export function runInRoom(room, code, { timeout = 60000, esm = true, execPath = process.execPath } = {}) {
   const file = join(room.dir, esm ? `probe-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs` : `probe.cjs`);
   writeFileSync(file, code);
-  const r = spawnSync(process.execPath, [file], { cwd: room.dir, encoding: 'utf8', timeout });
+  const r = spawnSync(execPath, [file], { cwd: room.dir, encoding: 'utf8', timeout });
   try { rmSync(file, { force: true }); } catch {}
   return {
     ok: r.status === 0,
