@@ -227,11 +227,27 @@ test('checkEngines does not run anything when no interpreter satisfies the range
 });
 
 test('discoverInterpreters always includes the node packproof is running as', () => {
-  const found = discoverInterpreters({ env: {}, home: '/nonexistent-home', execPath: '/usr/bin/node', running: 'v20.1.2' });
+  // No version-manager directory exists under these paths, so the running Node
+  // is the only thing there is to find. (A real machine may well have more —
+  // GitHub's runners keep one under /usr/local/n — which is the point.)
+  const found = discoverInterpreters({
+    env: { NVM_DIR: '/nonexistent-nvm', N_PREFIX: '/nonexistent-n' },
+    home: '/nonexistent-home',
+    execPath: '/usr/bin/node',
+    running: 'v20.1.2',
+  });
   assert.equal(found.length, 1);
   assert.equal(found[0].running, true);
   assert.equal(found[0].path, '/usr/bin/node');
   assert.equal(formatVersion(found[0].version), '20.1.2');
+});
+
+test('discoverInterpreters lists the running node first and never twice', () => {
+  const found = discoverInterpreters();
+  assert.equal(found[0].running, true);
+  assert.equal(formatVersion(found[0].version), formatVersion(parseVersion(process.version)));
+  const versions = found.map((f) => formatVersion(f.version));
+  assert.equal(new Set(versions).size, versions.length);
 });
 
 test('the runner really launches the interpreter it chose, not the current one', async () => {
