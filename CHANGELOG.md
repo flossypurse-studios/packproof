@@ -4,6 +4,29 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
+## 0.11.0 — 2026-08-15
+
+**`--only` and `--skip`.** A run was all-or-nothing, and the all included a real `npm
+install` into a clean room — the slow part, and exactly what a fast lane wants to drop. The
+eight check groups now have names you can select: `shipped-files`, `diff`, `install`,
+`entries`, `require`, `bins`, `engines`, `lazy`. Both flags are repeatable and
+comma-separated. `packproof --skip install` is a credential-and-file-list check that needs
+no install at all; `--only entries` implies the install, because that is a prerequisite.
+
+**A run that skipped checks says so, everywhere.** The human report lists each check that
+did not run and why, `--json` gains `skippedChecks` (plus `fullRun` and `installed`),
+JUnit emits real `<skipped>` testcases and a `skipped="n"` count, and `--format=github`
+adds a notice. The verdict line is the part that matters: a run that never installed the
+package no longer prints "this package works when installed" — it says plainly that it never
+installed it and therefore proves nothing about installing it. A green packproof that quietly
+checked three of eight things is the lie this tool exists to prevent.
+
+Contradictions are refused with exit 2 rather than resolved by guessing: `--only entries
+--skip install`, `--only x --skip x`, `--only diff` with no `--diff`, skipping everything,
+and an unknown id (which prints the real ids, never a guess at your typo). `--skip-require`
+still works and is now the older spelling of `--skip require`; it is reported as a skip like
+any other. A run with neither flag is byte-identical to 0.10.0.
+
 ## 0.10.0 — 2026-08-15
 
 **The Node version you promised.** `engines.node` is a claim nothing in the npm toolchain

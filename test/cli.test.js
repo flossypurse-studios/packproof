@@ -140,3 +140,77 @@ test('--strict is documented in --help', () => {
   assert.equal(r.code, 0);
   assert.match(r.stdout, /--strict\s+fail on everything packproof would otherwise only note/);
 });
+
+// --- --only / --skip through the real binary ---
+
+test('--skip install runs without a clean room and refuses to claim it installs', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/good-cjs', '--skip', 'install']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /✓ shipped files/);
+  assert.doesNotMatch(r.stdout, /works when installed/);
+  assert.match(r.stdout, /never installed the package/);
+  assert.match(r.stdout, /- entries — did not run, needs the install check/);
+});
+
+test('--only shipped-files runs exactly one check', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/good-cjs', '--only', 'shipped-files']);
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout.split('\n').filter((l) => l.includes('✓')).length, 1);
+  assert.match(r.stdout, /not selected by --only/);
+});
+
+test('--only and --skip are repeatable and comma-splittable', { timeout: TIMEOUT }, async () => {
+  const a = run(['test/fixtures/good-cjs', '--skip', 'install,diff']);
+  const b = run(['test/fixtures/good-cjs', '--skip', 'install', '--skip=diff']);
+  assert.equal(a.code, 0);
+  assert.equal(a.stdout, b.stdout);
+});
+
+test('a contradiction exits 2 before anything is packed', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/good-cjs', '--only', 'entries', '--skip', 'install']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /nothing can be imported/);
+  assert.equal(r.stdout, '');
+});
+
+test('an unknown check id lists the real ones', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/good-cjs', '--skip', 'instal']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /unknown check "instal" in --skip/);
+  assert.match(r.stderr, /shipped-files, diff, install, entries, require, bins, engines, lazy/);
+});
+
+test('--only still fails the run when the check it selected fails', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/broken-bin-no-shebang', '--only', 'bins']);
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /problem/);
+  // the install ran because bins needs it, and nothing else was probed
+  assert.doesNotMatch(r.stdout, /import "/);
+});
+
+test('a partial run in json carries skippedChecks and installed:false', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/good-cjs', '--only', 'shipped-files', '--json']);
+  assert.equal(r.code, 0);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.ok, true);
+  assert.equal(out.installed, false);
+  assert.equal(out.fullRun, false);
+  assert.ok(out.skippedChecks.some((s) => s.id === 'install'));
+});
+
+test('a full run still reports nothing skipped', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/good-cjs', '--json']);
+  assert.equal(r.code, 0);
+  const out = JSON.parse(r.stdout);
+  assert.deepEqual(out.skippedChecks, []);
+  assert.equal(out.fullRun, true);
+  assert.equal(out.installed, true);
+});
+
+test('--help names every check id', { timeout: TIMEOUT }, async () => {
+  const r = run(['--help']);
+  assert.equal(r.code, 0);
+  for (const id of ['shipped-files', 'diff', 'install', 'entries', 'require', 'bins', 'engines', 'lazy']) {
+    assert.match(r.stdout, new RegExp(`\\n  ${id}\\s`));
+  }
+});

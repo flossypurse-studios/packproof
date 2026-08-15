@@ -6,6 +6,7 @@ import { checkEngines } from './engines.js';
 import { checkShippedFiles } from './hygiene.js';
 import { diffAgainstPublished } from './diff.js';
 import { fetchRegistryTarball, manifestFromTarball, DEFAULT_REGISTRY } from './registry.js';
+import { selectChecks } from './select.js';
 import { resolve, relative, sep } from 'node:path';
 import {
   findWorkspacePackages,
@@ -36,6 +37,17 @@ function pathPrefixFor(target) {
 export async function packproof(target = '.', opts = {}) {
   const started = Date.now();
   opts = { ...opts, target };
+  // What this run is allowed to look at. --skip-require is the same thing said
+  // an older way, so it folds in here and gets reported like any other skip.
+  const selection =
+    opts.selection ||
+    selectChecks({
+      only: opts.only,
+      skip: [].concat(opts.skip || [], opts.skipRequire ? ['require'] : []),
+      requested: { diff: !!opts.diff, lazy: !!opts.lazy },
+    });
+  if (!selection.ok) throw new Error(selection.error);
+  const runs = (id) => selection.enabled.has(id);
   const checks = [];
   let manifest;
   let tarball;
@@ -71,7 +83,7 @@ export async function packproof(target = '.', opts = {}) {
         detail: `expected ${got.integrity.expected}\nactual   ${got.integrity.actual}`,
       });
       manifest = { name: got.name, version: got.version };
-      return finish({ manifest, tarball, packed, files: [], checks, started, room: null, opts, source, registry });
+      return finish({ manifest, tarball, packed, files: [], checks, started, room: null, opts, source, registry, selection });
     }
     checks.push({
       name: label,
@@ -93,12 +105,12 @@ export async function packproof(target = '.', opts = {}) {
   const files = tarballFiles(tarball);
   // What shipped is a fact about the release on its own: report it before the
   // install, so a leaked credential is still named even if nothing installs.
-  checks.push(checkShippedFiles(files, { strict: opts.strict }));
+  if (runs('shipped-files')) checks.push(checkShippedFiles(files, { strict: opts.strict }));
   // What the last release shipped is the only honest baseline for what this one
   // should contain, and asking the registry costs one request. Before the install,
   // because it is a fact about the file list and needs nothing installed.
   let fileDiff = null;
-  if (opts.diff) {
+  if (opts.diff && runs('diff')) {
     const got = await diffAgainstPublished({
       manifest,
       files,
@@ -115,6 +127,12 @@ export async function packproof(target = '.', opts = {}) {
   const siblingDeps = opts.siblingNames
     ? siblingDependencies(manifest, opts.siblingNames).filter((d) => d.name !== manifest.name)
     : [];
+  // No install means no clean room at all: every probe below reads out of one,
+  // and a probe with nowhere to read from would be a phantom pass. Stop here and
+  // let the report say plainly which checks did not happen.
+  if (!runs('install')) {
+    return finish({ manifest, tarball, packed, files, checks, started, room: null, opts, source, registry, fileDiff, selection });
+  }
   const room = createCleanRoom();
   let install;
   try {
@@ -150,7 +168,7 @@ export async function packproof(target = '.', opts = {}) {
           detail,
         });
       }
-      return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff });
+      return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff, selection });
     }
     checks.push({
       name: 'npm install <tarball>',
@@ -159,14 +177,14 @@ export async function packproof(target = '.', opts = {}) {
         ? `${siblingDeps.map((d) => `${d.name}@${d.range}`).join(', ')} resolved from the registry, not from this workspace`
         : undefined,
     });
-    checks.push(...checkEntries(room, manifest));
-    if (!opts.skipRequire) checks.push(...checkRequire(room, manifest));
-    checks.push(...checkBins(room, manifest, { binArgs: opts.binArgs, strict: opts.strict }));
+    if (runs('entries')) checks.push(...checkEntries(room, manifest));
+    if (runs('require')) checks.push(...checkRequire(room, manifest));
+    if (runs('bins')) checks.push(...checkBins(room, manifest, { binArgs: opts.binArgs, strict: opts.strict }));
     // The manifest's Node floor is a promise nothing else in the toolchain keeps.
     // Re-import under the oldest Node it claims, or say plainly that this machine
     // has no such Node — a green line that verified nothing would be a lie.
-    checks.push(...checkEngines(room, manifest));
-    if (opts.lazy) {
+    if (runs('engines')) checks.push(...checkEngines(room, manifest));
+    if (opts.lazy && runs('lazy')) {
       // Don't say the same thing twice: if loading already blew up on a package,
       // the deep probe has nothing to add about it.
       const already = new Set(checks.filter((c) => !c.pass && c.missing).map((c) => c.missing));
@@ -175,10 +193,10 @@ export async function packproof(target = '.', opts = {}) {
   } finally {
     if (!opts.keep) room.cleanup();
   }
-  return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff });
+  return finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff, selection });
 }
 
-function finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff }) {
+function finish({ manifest, tarball, packed, files, checks, started, room, opts, source, registry, fileDiff, selection }) {
   const failed = checks.filter((c) => !c.pass);
   return {
     name: manifest.name,
@@ -192,6 +210,11 @@ function finish({ manifest, tarball, packed, files, checks, started, room, opts,
     files,
     fileCount: files.length,
     checks,
+    // A run that dropped checks has to carry that with it, into every format:
+    // `ok` on its own would read as "all of it passed", which it did not.
+    skippedChecks: (selection && selection.skipped) || [],
+    fullRun: selection ? selection.full : true,
+    installed: selection ? selection.installed : true,
     failures: failed,
     ok: failed.length === 0,
     room: opts.keep && room ? room.dir : null,
@@ -230,6 +253,17 @@ export async function packproofWorkspaces(target = '.', opts = {}) {
     selected = found.packages.filter(known);
   }
 
+  // One selection for the whole workspace: every package is proved the same way,
+  // and a refusal is a refusal before any clean room is built.
+  const selection =
+    opts.selection ||
+    selectChecks({
+      only: opts.only,
+      skip: [].concat(opts.skip || [], opts.skipRequire ? ['require'] : []),
+      requested: { diff: !!opts.diff, lazy: !!opts.lazy },
+    });
+  if (!selection.ok) throw new Error(selection.error);
+
   const siblingNames = new Set(found.packages.map((p) => p.name));
   const packages = [];
   const skipped = [];
@@ -244,6 +278,7 @@ export async function packproofWorkspaces(target = '.', opts = {}) {
       workspaces: false,
       workspace: null,
       siblingNames,
+      selection,
     });
     one.workspace = pkg.name;
     one.workspaceDir = pkg.rel;
@@ -267,6 +302,9 @@ export async function packproofWorkspaces(target = '.', opts = {}) {
     packages,
     packageCount: packages.length,
     releaseOrder: order,
+    skippedChecks: selection.skipped,
+    fullRun: selection.full,
+    installed: selection.installed,
     skipped,
     failures,
     ok: failures.length === 0,

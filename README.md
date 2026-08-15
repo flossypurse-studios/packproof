@@ -128,8 +128,11 @@ packproof [path-or-tarball] [options]
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
+                      (the older spelling of --skip require)
   --lazy              also scan shipped source for imports that never execute
   --strict            fail on everything packproof would otherwise only note
+  --only <checks>     run only these checks (repeatable, comma-separated)
+  --skip <checks>     run everything except these
   --bin-args <args>   args passed to each bin (default: --version)
   -h, --help          show help
   -v, --version       show packproof's version
@@ -410,6 +413,61 @@ A minimal workflow step:
 - run: npx packproof --lazy --format=github
 ```
 
+### Running less of it (`--only`, `--skip`)
+
+A full run installs the real tarball, and the install is the slow part. Some lanes want
+less than that. A pre-commit hook asking *"did I just stage a credential"* needs no
+install at all; a release job asking *"did a file stop shipping"* needs one HTTP request.
+Name the check groups you want:
+
+```sh
+packproof --skip install                  # the fast lane: file list only, no install
+packproof --only shipped-files            # same thing, said the other way
+packproof --diff --only shipped-files,diff
+packproof --skip engines,lazy             # everything else, minus two probes
+```
+
+Both flags are repeatable and comma-separated, so `--skip a,b` and `--skip a --skip b`
+are the same. The groups are:
+
+| id | what it does |
+| --- | --- |
+| `shipped-files` | the tarball's own file list: credentials fail, cruft is noted |
+| `diff` | file list against an already-published version (needs `--diff`) |
+| `install` | `npm install` of the tarball into an empty project |
+| `entries` | import every entry point in `exports`/`main`/`module` |
+| `require` | `require()` every entry point too |
+| `bins` | execute every declared bin |
+| `engines` | import again under the oldest Node `engines.node` accepts |
+| `lazy` | imports hidden inside functions are declared too (needs `--lazy`) |
+
+**A run that skipped something says so.** That is the whole point of the feature having
+been built this way rather than the easy way. The report lists every check that did not
+run and why, `--json` carries `skippedChecks`, JUnit emits real `<skipped>` testcases
+so a dashboard shows the hole instead of a shorter green bar, and `--format=github` adds
+a notice. Most importantly the verdict line changes: a run that never installed the
+package is **not allowed to print "this package works when installed"**, because it does
+not know that.
+
+```
+packproof@1.4.0 — 17 files packed
+  ✓ shipped files — 17 files, no credentials or cruft
+  - install — did not run, skipped with --skip
+  - entries — did not run, needs the install check, which is not running
+  ...
+
+packproof: everything this run looked at is fine — but it never installed the package,
+so it proves nothing about installing it. Skipped: install, entries, require, bins, engines, lazy.
+```
+
+Contradictions are refused (exit 2) rather than resolved by guessing:
+`--only entries --skip install` cannot be satisfied, because nothing can be imported out
+of a clean room that was never filled; `--only bins --skip bins` asks for and against the
+same thing; `--only diff` without `--diff` has nothing to compare; and an unknown id
+prints the real ones instead of guessing at your typo. Asking for an import probe
+(`--only entries`) implies the install, because that is a prerequisite and not a
+preference.
+
 ### What gets checked
 
 - **install** — `npm install <tarball>` into a directory containing nothing else.
@@ -461,7 +519,12 @@ const result = await packproof('.');
 if (!result.ok) console.error(result.failures.map((f) => f.kind));
 ```
 
-`result` is `{ name, version, source, registry, tarball, packed, files, fileCount, checks, failures, ok, room, durationMs }`.
+`result` is `{ name, version, source, registry, tarball, packed, files, fileCount, checks, skippedChecks, fullRun, installed, failures, ok, room, durationMs }`.
+
+`skippedChecks` is `[{ id, reason }]` and is empty on a full run; `installed` is `false`
+when the run never installed the package, which is the flag to read before believing `ok`
+means much. Select checks programmatically with `{ only: ['shipped-files'] }` or
+`{ skip: ['install'] }` — an impossible combination throws.
 
 `source` is `'local'` or `'registry'`; `registry` is `null` unless you passed the option, in
 which case it records `{ spec, url, tarballUrl, bytes, integrity }`. To prove a published
@@ -538,6 +601,12 @@ runs `publint && packproof`.
   single version you named — not every version you have ever published. It needs the
   network, and it fails loudly (`diff-unavailable`) rather than quietly passing when it
   cannot reach the registry.
+- **`--only` and `--skip` make the run weaker, and that is the point — so read the
+  verdict.** A partial run is worth having: the alternative is usually no run at all. But
+  the exit code of `packproof --skip install` means "nothing I looked at is wrong", not
+  "this package installs", and the two are very different claims. packproof will never
+  print the second one after a run that did not earn it, in any format — if your CI reads
+  the exit code and nothing else, keep one full run somewhere before you publish.
 - **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
   you downloaded are the bytes the registry has on record for that version; it is not
   provenance or a signature check.

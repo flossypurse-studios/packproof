@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { packproof, packproofWorkspaces } from './index.js';
 import { FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError } from './format.js';
+import { CHECK_IDS, CHECK_HELP, selectChecks, verdictLine } from './select.js';
+
+const CHECK_LINES = CHECK_IDS.map((id) => `  ${id.padEnd(18)}${CHECK_HELP[id]}`).join('\n');
 
 const HELP = `packproof — install your package like a stranger would, before they do.
 
@@ -47,6 +50,7 @@ Options
   --keep              keep the clean room and print its path
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
+                      (the older spelling of --skip require)
   --lazy              also read the shipped source for imports hidden inside
                       functions and branches that merely loading the package
                       never reaches, and check those are declared too
@@ -57,9 +61,20 @@ Options
                       verdict — for CI that wants none of it. An engines.node
                       claim this machine cannot verify is never promoted: that
                       is a fact about the machine, not about the package.
+  --only <checks>     run only these checks (repeatable, comma-separated)
+  --skip <checks>     run everything except these. A run that skipped
+                      anything says so in every format — the verdict line
+                      never claims more than the run actually proved.
   --bin-args <args>   args passed to each bin (default: --version)
   -h, --help          show this
   -v, --version       show packproof's version
+
+Checks (for --only / --skip)
+${CHECK_LINES}
+
+  The import probes need the install: --skip install drops them too, and
+  says so. Skipping the install means the run never proves the package
+  installs — packproof will not print that it does.
 `;
 
 function parse(argv) {
@@ -92,6 +107,10 @@ function parse(argv) {
     else if (a === '--skip-require') opts.skipRequire = true;
     else if (a === '--lazy') opts.lazy = true;
     else if (a === '--strict') opts.strict = true;
+    else if (a === '--only') (opts.only ||= []).push(String(argv[++i] ?? ''));
+    else if (a.startsWith('--only=')) (opts.only ||= []).push(a.slice('--only='.length));
+    else if (a === '--skip') (opts.skip ||= []).push(String(argv[++i] ?? ''));
+    else if (a.startsWith('--skip=')) (opts.skip ||= []).push(a.slice('--skip='.length));
     else if (a === '--bin-args') opts.binArgs = String(argv[++i] ?? '').split(' ').filter(Boolean);
     else if (a === '-h' || a === '--help') opts.help = true;
     else if (a === '-v' || a === '--version') opts.version = true;
@@ -130,6 +149,19 @@ if (opts.workspaces && opts.diff && opts.diff !== true) {
   );
   process.exit(2);
 }
+
+// Decide what runs before anything is packed: a contradiction should cost the
+// user nothing, and a refusal is never resolved by guessing which half was meant.
+const selection = selectChecks({
+  only: opts.only,
+  skip: [].concat(opts.skip || [], opts.skipRequire ? ['require'] : []),
+  requested: { diff: !!opts.diff, lazy: !!opts.lazy },
+});
+if (!selection.ok) {
+  console.error(`packproof: ${selection.error}`);
+  process.exit(2);
+}
+opts.selection = selection;
 
 const format = opts.format || 'human';
 if (!FORMAT_NAMES.includes(format)) {
@@ -180,6 +212,9 @@ function printPackage(r) {
       if (chk.hint) console.log(`      ${c.yellow(chk.hint)}`);
       if (chk.detail) for (const line of chk.detail.split('\n')) console.log(c.dim(`      ${line}`));
     }
+  }
+  for (const sk of r.skippedChecks || []) {
+    console.log(`  ${c.dim('-')} ${sk.id} ${c.dim(`— did not run, ${sk.reason}`)}`);
   }
   if (r.room) console.log(c.dim(`\nclean room kept at ${r.room}`));
 }
@@ -240,21 +275,37 @@ if (result.workspaces) {
   printReleaseOrder(result.releaseOrder);
   if (printed) console.log('');
   const bad = result.packages.filter((r) => !r.ok);
-  console.log(
-    result.ok
-      ? c.green(`packproof: all ${n} package${n === 1 ? ' works' : 's work'} when installed.`)
-      : c.red(
-          `packproof: ${result.failures.length} problem${result.failures.length === 1 ? '' : 's'} your users would hit, in ` +
-            `${bad.length} of ${n} package${n === 1 ? '' : 's'} (${bad.map((r) => r.name).join(', ')}).`
-        )
-  );
+  const partial = (result.skippedChecks || []).length;
+  const names = (result.skippedChecks || []).map((sk) => sk.id).join(', ');
+  if (!result.ok) {
+    console.log(
+      c.red(
+        `packproof: ${result.failures.length} problem${result.failures.length === 1 ? '' : 's'} your users would hit, in ` +
+          `${bad.length} of ${n} package${n === 1 ? '' : 's'} (${bad.map((r) => r.name).join(', ')}).` +
+          (partial ? ` ${partial} check${partial === 1 ? ' was' : 's were'} skipped (${names}).` : '')
+      )
+    );
+  } else if (!partial) {
+    console.log(c.green(`packproof: all ${n} package${n === 1 ? ' works' : 's work'} when installed.`));
+  } else if (!result.installed) {
+    console.log(
+      c.yellow(
+        `packproof: everything this run looked at is fine across ${n} package${n === 1 ? '' : 's'} — but it never ` +
+          `installed any of them, so it proves nothing about installing them. Skipped: ${names}.`
+      )
+    );
+  } else {
+    console.log(
+      c.yellow(
+        `packproof: all ${n} package${n === 1 ? ' works' : 's work'} when installed — but ${partial} ` +
+          `check${partial === 1 ? '' : 's'} did not run (${names}), so this is not a full proof.`
+      )
+    );
+  }
   process.exit(result.ok ? 0 : 1);
 }
 
 printPackage(result);
-console.log(
-  result.ok
-    ? `\n${c.green('packproof: this package works when installed.')}`
-    : `\n${c.red(`packproof: ${result.failures.length} problem${result.failures.length === 1 ? '' : 's'} your users would hit.`)}`
-);
+const verdict = `packproof: ${verdictLine({ skipped: result.skippedChecks, installed: result.installed }, { failures: result.failures.length })}`;
+console.log('\n' + (result.ok ? (result.fullRun ? c.green(verdict) : c.yellow(verdict)) : c.red(verdict)));
 process.exit(result.ok ? 0 : 1);

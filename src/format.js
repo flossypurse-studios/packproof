@@ -59,7 +59,32 @@ export function githubAnnotations(result) {
   const lines = [];
   for (const run of runsOf(result)) lines.push(...githubLines(run));
   if (!lines.length) lines.push(githubCleanNotice(result));
+  // A run that dropped checks says so whether or not anything failed: a log
+  // showing only green annotations must never imply a full proof.
+  const notice = githubSkippedNotice(result);
+  if (notice) lines.push(notice);
   return lines.join('\n') + '\n';
+}
+
+/** What did not run, and — when it matters most — that nothing was installed. */
+export function skippedOf(result) {
+  const seen = new Map();
+  for (const run of runsOf(result)) for (const sk of run.skippedChecks || []) seen.set(sk.id, sk);
+  for (const sk of (result && result.skippedChecks) || []) seen.set(sk.id, sk);
+  return [...seen.values()];
+}
+
+function githubSkippedNotice(result) {
+  const skipped = skippedOf(result);
+  if (!skipped.length) return null;
+  const names = skipped.map((sk) => sk.id).join(', ');
+  const installed = runsOf(result).every((r) => r.installed !== false) && result.installed !== false;
+  const tail = installed
+    ? 'this is not a full proof.'
+    : 'the package was never installed, so this run proves nothing about installing it.';
+  return `::notice title=packproof::${escapeData(
+    `${skipped.length} check${skipped.length === 1 ? '' : 's'} did not run (${names}) — ${tail}`
+  )}`;
 }
 
 function githubLines(result) {
@@ -83,10 +108,12 @@ function githubCleanNotice(result) {
   const runs = runsOf(result);
   const passed = runs.reduce((n, r) => n + (r.checks || []).length, 0);
   const files = runs.reduce((n, r) => n + (r.fileCount || 0), 0);
+  // "installs clean" is a claim only a run that installed it may make.
+  const installed = runs.every((r) => r.installed !== false);
   const subject = result.packages
-    ? `${runs.length} package${runs.length === 1 ? '' : 's'} in ${result.rootName || 'this workspace'} ` +
-      `install${runs.length === 1 ? 's' : ''}`
-    : `${result.name}@${result.version} installs`;
+    ? `${runs.length} package${runs.length === 1 ? '' : 's'} in ${result.rootName || 'this workspace'}` +
+      (installed ? ` install${runs.length === 1 ? 's' : ''}` : '')
+    : `${result.name}@${result.version}${installed ? ' installs' : ''}`;
   return `::notice title=packproof::${escapeData(
     `${subject} clean — ${passed} check${passed === 1 ? '' : 's'} passed, ${files} files`
   )}`;
@@ -118,9 +145,12 @@ function seconds(ms) {
  */
 export function junitXml(result) {
   const runs = runsOf(result);
-  const total = runs.reduce((n, r) => n + (r.checks || []).length, 0);
+  const total = runs.reduce((n, r) => n + (r.checks || []).length + (r.skippedChecks || []).length, 0);
   const failed = runs.reduce((n, r) => n + (r.checks || []).filter((c) => !c.pass).length, 0);
-  const counts = `tests="${total}" failures="${failed}" errors="0" time="${seconds(result.durationMs)}"`;
+  const skipped = runs.reduce((n, r) => n + (r.skippedChecks || []).length, 0);
+  const counts = `tests="${total}" failures="${failed}" errors="0" skipped="${skipped}" time="${seconds(
+    result.durationMs
+  )}"`;
   const out = ['<?xml version="1.0" encoding="UTF-8"?>', `<testsuites name="packproof" ${counts}>`];
   for (const run of runs) out.push(...junitSuite(run));
   out.push('</testsuites>', '');
@@ -129,10 +159,13 @@ export function junitXml(result) {
 
 function junitSuite(result) {
   const checks = result.checks || [];
+  const missing = result.skippedChecks || [];
   const failures = checks.filter((c) => !c.pass).length;
   const time = seconds(result.durationMs);
   const suiteName = `${result.name}@${result.version}`;
-  const counts = `tests="${checks.length}" failures="${failures}" errors="0" time="${time}"`;
+  const counts =
+    `tests="${checks.length + missing.length}" failures="${failures}" errors="0" ` +
+    `skipped="${missing.length}" time="${time}"`;
   const out = [`  <testsuite name="${xml(suiteName)}" ${counts}>`];
   for (const chk of checks) {
     const attrs = [`name="${xml(chk.name)}"`, `classname="${xml(result.name)}"`];
@@ -152,6 +185,13 @@ function junitSuite(result) {
     const body = [chk.name, chk.hint, chk.detail].filter(Boolean).join('\n');
     out.push(xml(body));
     out.push('      </failure>');
+    out.push('    </testcase>');
+  }
+  // A check that did not run is a skipped testcase, not an absent one: a CI
+  // dashboard should show the hole rather than a shorter green bar.
+  for (const sk of missing) {
+    out.push(`    <testcase name="${xml(sk.id)}" classname="${xml(result.name)}">`);
+    out.push(`      <skipped message="${xml(sk.reason)}" />`);
     out.push('    </testcase>');
   }
   out.push('  </testsuite>');
@@ -174,4 +214,4 @@ export function junitError(message, name = 'packproof') {
   ].join('\n');
 }
 
-export const FORMATS = { names: FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError, runsOf };
+export const FORMATS = { names: FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError, runsOf, skippedOf };

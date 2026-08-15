@@ -106,8 +106,8 @@ test('junit: one testcase per check, failures counted', () => {
   const chk = fail({ name: 'require("ghost") in src/a.js:10', file: 'src/a.js', line: 10, hint: 'add it', detail: 'more' });
   const xml = junitXml(result({ ok: false, checks: [{ pass: true, name: 'npm install <tarball>' }, chk], failures: [chk] }));
   assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n/);
-  assert.match(xml, /<testsuites name="packproof" tests="2" failures="1" errors="0" time="1\.234">/);
-  assert.match(xml, /<testsuite name="demo@1\.2\.3" tests="2" failures="1" errors="0" time="1\.234">/);
+  assert.match(xml, /<testsuites name="packproof" tests="2" failures="1" errors="0" skipped="0" time="1\.234">/);
+  assert.match(xml, /<testsuite name="demo@1\.2\.3" tests="2" failures="1" errors="0" skipped="0" time="1\.234">/);
   assert.match(xml, /<testcase name="npm install &lt;tarball&gt;" classname="demo" \/>/);
   assert.match(xml, /<testcase name="require\(&quot;ghost&quot;\) in src\/a\.js:10" classname="demo" file="src\/a\.js" line="10">/);
   assert.match(xml, /<failure type="undeclared-dependency" message="add it">/);
