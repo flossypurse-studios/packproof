@@ -4,7 +4,7 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
-## 0.13.0 — 2026-08-16
+## 0.13.0 — 2026-08-15
 
 **`--node <version|path>` — the escape hatch for the engines check.** Until now the
 `engines.node` check could only use Nodes that happened to be installed: on a box with one
@@ -33,7 +33,7 @@ there is no promise to shelter behind and npm will install it for anyone on that
 failed import is a real `engines-unsatisfied` failure and the line says the manifest is
 silent about it.
 
-## 0.12.0 — 2026-08-16
+## 0.12.0 — 2026-08-15
 
 **peerDependencies honesty — the one thing a clean room lies about.** A peer is a sentence
 addressed to the consumer: *you bring this, not me.* npm 7+ auto-installs required peers, so
