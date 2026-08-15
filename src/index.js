@@ -2,7 +2,7 @@ import { makeTarball, readManifest, tarballFiles } from './pack.js';
 import { createCleanRoom, installTarball } from './cleanroom.js';
 import { checkEntries, checkRequire, checkBins } from './checks.js';
 import { checkLazyImports } from './lazy.js';
-import { checkEngines } from './engines.js';
+import { checkEngines, resolveNodes } from './engines.js';
 import { checkPeers } from './peers.js';
 import { checkShippedFiles } from './hygiene.js';
 import { diffAgainstPublished } from './diff.js';
@@ -45,9 +45,16 @@ export async function packproof(target = '.', opts = {}) {
     selectChecks({
       only: opts.only,
       skip: [].concat(opts.skip || [], opts.skipRequire ? ['require'] : []),
-      requested: { diff: !!opts.diff, lazy: !!opts.lazy },
+      requested: { diff: !!opts.diff, lazy: !!opts.lazy, node: !!(opts.node && opts.node.length) },
     });
   if (!selection.ok) throw new Error(selection.error);
+  // --node is resolved before anything is packed: an interpreter that does not
+  // exist should cost the caller nothing, and is never guessed at.
+  if (opts.node && !opts.nodes) {
+    const resolved = resolveNodes(opts.node);
+    if (!resolved.ok) throw new Error(resolved.error);
+    opts = { ...opts, nodes: resolved.nodes };
+  }
   const runs = (id) => selection.enabled.has(id);
   const checks = [];
   let manifest;
@@ -184,7 +191,7 @@ export async function packproof(target = '.', opts = {}) {
     // The manifest's Node floor is a promise nothing else in the toolchain keeps.
     // Re-import under the oldest Node it claims, or say plainly that this machine
     // has no such Node — a green line that verified nothing would be a lie.
-    if (runs('engines')) checks.push(...checkEngines(room, manifest));
+    if (runs('engines')) checks.push(...checkEngines(room, manifest, { nodes: opts.nodes }));
     // A peer is the consumer's half of the bargain, and npm 7+ quietly keeps it
     // for them here. Only a second, peer-free room can say whether the manifest
     // told the truth — and only worth building when peers were declared at all.
@@ -270,9 +277,16 @@ export async function packproofWorkspaces(target = '.', opts = {}) {
     selectChecks({
       only: opts.only,
       skip: [].concat(opts.skip || [], opts.skipRequire ? ['require'] : []),
-      requested: { diff: !!opts.diff, lazy: !!opts.lazy },
+      requested: { diff: !!opts.diff, lazy: !!opts.lazy, node: !!(opts.node && opts.node.length) },
     });
   if (!selection.ok) throw new Error(selection.error);
+  // Resolve --node once for the whole workspace, not once per package.
+  let nodes = opts.nodes;
+  if (opts.node && !nodes) {
+    const resolved = resolveNodes(opts.node);
+    if (!resolved.ok) throw new Error(resolved.error);
+    nodes = resolved.nodes;
+  }
 
   const siblingNames = new Set(found.packages.map((p) => p.name));
   const packages = [];
@@ -289,6 +303,7 @@ export async function packproofWorkspaces(target = '.', opts = {}) {
       workspace: null,
       siblingNames,
       selection,
+      nodes,
     });
     one.workspace = pkg.name;
     one.workspaceDir = pkg.rel;

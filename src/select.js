@@ -23,7 +23,7 @@ export const CHECK_HELP = {
   entries: 'import every entry point in exports/main/module',
   require: 'require() every entry point too',
   bins: 'execute every declared bin',
-  engines: 'import again under the oldest Node engines.node accepts',
+  engines: 'import again under the oldest Node engines.node accepts (or --node)',
   peers: 'import again with the declared peerDependencies genuinely absent',
   lazy: 'imports hidden inside functions are declared too (needs --lazy)',
 };
@@ -33,6 +33,12 @@ export const NEEDS_INSTALL = ['entries', 'require', 'bins', 'engines', 'peers', 
 
 /** Groups that only ever run when their flag was passed. */
 const GATED_BY_FLAG = { diff: 'diff', lazy: 'lazy' };
+
+/**
+ * A flag that configures a check rather than enabling it: passing it while
+ * selecting that check away is the same contradiction, said the other way.
+ */
+const CONFIGURES_CHECK = { node: 'engines' };
 
 const REASONS = {
   skip: 'skipped with --skip',
@@ -130,6 +136,19 @@ export function selectChecks({ only, skip, requested = {} } = {}) {
       const how = skipSet.has(id) ? `--skip ${id}` : `--only ${onlyIds.join(',')}`;
       return { ok: false, error: `--${flag} asks for the ${id} check and ${how} removes it — pick one` };
     }
+  }
+
+  for (const [flag, id] of Object.entries(CONFIGURES_CHECK)) {
+    if (!requested[flag] || enabled.has(id)) continue;
+    const how = skipSet.has(id)
+      ? `--skip ${id}`
+      : skipSet.has('install') && NEEDS_INSTALL.includes(id)
+        ? '--skip install'
+        : `--only ${onlyIds.join(',')}`;
+    return {
+      ok: false,
+      error: `--${flag} names the Node the ${id} check runs under and ${how} removes that check — pick one`,
+    };
   }
 
   if (!enabled.size) {

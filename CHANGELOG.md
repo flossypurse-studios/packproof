@@ -4,6 +4,35 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
+## 0.13.0 — 2026-08-16
+
+**`--node <version|path>` — the escape hatch for the engines check.** Until now the
+`engines.node` check could only use Nodes that happened to be installed: on a box with one
+Node 22, a package claiming `">=18"` got `engines-partly-verified` — honest, but
+unverified. `--node` names the interpreter yourself. It takes a bare version (`--node 18`,
+`--node 18.20.4`) matched against the Nodes packproof can find, or a path to a node binary
+(`--node ./vendor/node18/bin/node`), and it is repeatable: one check line per interpreter.
+It **replaces** the automatic choice rather than adding to it, because each interpreter costs
+a full re-import of every entry point and a run that does exactly what it was told is easier
+to trust.
+
+**Nothing is guessed at.** A value packproof cannot use is an error (exit 2) *before*
+anything is packed, the way an unknown `--only` id already was: a version that is not
+installed lists the ones that are, a path is verified by running `<path> --version` and
+rejected with what it actually printed if that is not a node version, and an empty `--node`
+says what the flag takes. `--node` together with `--skip engines` (or an `--only` that
+drops it) is refused as the contradiction it is.
+
+**A Node your range excludes is a question, not an accusation.** `--node 16` against
+`">=18"` still runs, and the report says exactly what happened — but it is a **pass** both
+ways round, under a new note kind `engines-outside-range`: if the import fails there, the
+manifest already said it would, and failing the run would mean blaming a package for
+breaking a promise it never made; if it works, the note says your declared floor may be
+higher than the one you have. The exception is a package with **no `engines.node` at all** —
+there is no promise to shelter behind and npm will install it for anyone on that Node, so a
+failed import is a real `engines-unsatisfied` failure and the line says the manifest is
+silent about it.
+
 ## 0.12.0 — 2026-08-16
 
 **peerDependencies honesty — the one thing a clean room lies about.** A peer is a sentence

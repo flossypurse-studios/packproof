@@ -34,6 +34,9 @@ it says so on the check line instead of passing quietly:
                         itself is still unverified
 ```
 
+`--node 18` (or a path to a node binary) names the interpreter yourself when the automatic
+search cannot find the one you promised.
+
 In a monorepo it does every package the workspace declares, each in its own clean room:
 
 ```
@@ -129,6 +132,8 @@ packproof [path-or-tarball] [options]
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
                       (the older spelling of --skip require)
+  --node <ver|path>   run the engines check under this Node: a version like 18
+                      or 18.20.4, or a path to a node binary (repeatable)
   --lazy              also scan shipped source for imports that never execute
   --strict            fail on everything packproof would otherwise only note
   --only <checks>     run only these checks (repeatable, comma-separated)
@@ -329,7 +334,7 @@ unless `--include-private` is given — and it rides along in `--json` as `relea
 worst, your CI runs one Node — usually the newest — and the first person to discover that
 your "Node 18 and up" package uses a Node 20 builtin is a stranger on Node 18.
 
-There is no flag. If the manifest declares `engines.node`, packproof finds every Node
+No flag needed. If the manifest declares `engines.node`, packproof finds every Node
 installed on the machine (the one it is running as, plus nvm, fnm, n, volta and asdf
 version directories), picks the **oldest** one the range accepts, and imports every entry
 point again under it:
@@ -361,8 +366,46 @@ nothing is worse than no line at all, so packproof never prints one:
 
 Only the first row is a verified claim. The rest are still passes: not finding a Node 18
 on your laptop is a fact about your laptop, not a bug in the package — which is also why
-`--strict` does **not** promote them. To actually verify the floor, install the Node you
-claim and run packproof under it, or add one CI lane that does:
+`--strict` does **not** promote them.
+
+#### Naming the Node yourself (`--node`)
+
+The automatic search can only use Nodes that happen to be installed. When you have the
+Node you promise — under a version manager, in a container, built somewhere odd —
+`--node` points packproof at it and closes the gap:
+
+```sh
+packproof --node 18                        # a version, matched against the Nodes it can find
+packproof --node 18.20.4                   # exactly that one
+packproof --node /usr/local/n/versions/node/18.20.4/bin/node   # or just say where
+packproof --node 18 --node 22              # repeatable: one check line each
+```
+
+`--node` **replaces** the automatic choice rather than adding to it — you named the
+interpreters you care about, and each one costs a full re-import of every entry point.
+A value packproof cannot use is an error (exit 2) before anything is packed: a version
+that is not installed says which ones are, and a path is run (`<path> --version`) and
+rejected if it is not a node.
+
+The case worth being careful about is a Node your range does **not** accept:
+
+```console
+$ packproof --node 16
+  ✓ engines.node ">=18" on node v16.20.2 — you asked for --node 16, which engines.node
+    ">=18" does not accept — importing "my-pkg" there fails because it imports a builtin
+    module that Node version does not have, which the manifest already told you. Not
+    counted against the package
+```
+
+It runs, and it says exactly what happened — but it is a **pass**, both ways round.
+`--node 16` against `">=18"` is a question, not an accusation: failing the run would
+mean blaming a package for breaking a promise it never made. (If it *works* down there,
+the note says so too — your floor may be higher than it needs to be.) The one exception
+is a package with **no `engines.node` at all**: there is no promise to shelter behind,
+npm will install it for anyone on that Node, so a failed import is a real failure and the
+report says the manifest is silent about it.
+
+Without `--node`, the other way to verify the floor is one CI lane that runs on it:
 
 ```yaml
 strategy:
@@ -484,7 +527,7 @@ are the same. The groups are:
 | `entries` | import every entry point in `exports`/`main`/`module` |
 | `require` | `require()` every entry point too |
 | `bins` | execute every declared bin |
-| `engines` | import again under the oldest Node `engines.node` accepts |
+| `engines` | import again under the oldest Node `engines.node` accepts, or the ones `--node` names |
 | `peers` | import again with the declared `peerDependencies` genuinely absent |
 | `lazy` | imports hidden inside functions are declared too (needs `--lazy`) |
 
@@ -529,7 +572,7 @@ preference.
   under the oldest Node installed here that the range accepts. Failing there is
   `engines-unsatisfied`: the package does not run on a Node it says it runs on. When no
   such Node exists on the machine, the check passes but says which Node it actually used
-  and that the floor is unverified.
+  and that the floor is unverified — or you name one with `--node`.
 - **the peers you told the consumer to install** — the one thing a clean room lies about; see above. A package with no
   `peerDependencies` costs one line and no extra work.
 - **shipped files** — the tarball's own path list, read for files that should never
@@ -640,6 +683,13 @@ runs `publint && packproof`.
   Node it is running as; a Node somewhere else on your `PATH` is missed rather than
   guessed at. It also only re-imports entry points — bins are executed once, under the
   current Node.
+- **`--node` names an interpreter, it does not install one.** A bare version is matched
+  against the same directories the automatic search reads, so `--node 18` still needs a
+  Node 18 to exist somewhere it looks — otherwise packproof refuses the run rather than
+  quietly falling back. A path is verified by running `<path> --version` first, so a path
+  that is not a node binary is an error before anything is packed, not a mystery failure
+  halfway through. And a Node outside your declared range is never counted against the
+  package: packproof runs it, prints exactly what happened, and leaves the verdict alone.
 - **The peers check tests absence, not version ranges.** It proves what happens when a
   declared peer is *missing*; it never installs a peer at some other version to see
   whether your `^18` was honest, and it does not notice a package you import without

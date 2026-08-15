@@ -212,3 +212,20 @@ test('skippedOf collapses a workspace run to one list', () => {
     ['install', 'entries']
   );
 });
+
+test('--node without the engines check is a contradiction, however it was written', () => {
+  const skipped = selectChecks({ skip: ['engines'], requested: { node: true } });
+  assert.equal(skipped.ok, false);
+  assert.match(skipped.error, /--node names the Node the engines check runs under and --skip engines removes that check/);
+
+  const notSelected = selectChecks({ only: ['entries'], requested: { node: true } });
+  assert.equal(notSelected.ok, false);
+  assert.match(notSelected.error, /--only entries removes that check/);
+
+  const noInstall = selectChecks({ skip: ['install'], requested: { node: true } });
+  assert.equal(noInstall.ok, false);
+  assert.match(noInstall.error, /--skip install removes that check/, 'name the cause the caller wrote');
+
+  assert.equal(selectChecks({ requested: { node: true } }).ok, true);
+  assert.equal(selectChecks({ only: ['engines'], requested: { node: true } }).ok, true);
+});

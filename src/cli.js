@@ -16,7 +16,8 @@ your users.
 
 If package.json declares engines.node, it imports the package again under
 the oldest Node on this machine that the range accepts — and when there is
-no such Node here, it says so instead of passing quietly.
+no such Node here, it says so instead of passing quietly. --node names
+the interpreter yourself, by version or by path.
 
 With --registry it skips packing and downloads an already-published
 version instead, so you can prove a release after the fact — yours or
@@ -61,6 +62,14 @@ Options
                       verdict — for CI that wants none of it. An engines.node
                       claim this machine cannot verify is never promoted: that
                       is a fact about the machine, not about the package.
+  --node <ver|path>   run the engines check under this Node instead of the
+                      oldest installed one the range happens to accept
+                      (repeatable). A bare 18 or 18.20.4 is matched against
+                      the Nodes packproof can find; anything else is a path
+                      to a node binary. A Node your engines.node does not
+                      accept still runs, and the report says so both ways —
+                      it is a question about the package, not a charge
+                      against it.
   --only <checks>     run only these checks (repeatable, comma-separated)
   --skip <checks>     run everything except these. A run that skipped
                       anything says so in every format — the verdict line
@@ -111,6 +120,11 @@ function parse(argv) {
     else if (a.startsWith('--only=')) (opts.only ||= []).push(a.slice('--only='.length));
     else if (a === '--skip') (opts.skip ||= []).push(String(argv[++i] ?? ''));
     else if (a.startsWith('--skip=')) (opts.skip ||= []).push(a.slice('--skip='.length));
+    else if (a === '--node') {
+      const next = argv[i + 1];
+      (opts.node ||= []).push(next === undefined || next.startsWith('-') ? '' : argv[++i]);
+    }
+    else if (a.startsWith('--node=')) (opts.node ||= []).push(a.slice('--node='.length));
     else if (a === '--bin-args') opts.binArgs = String(argv[++i] ?? '').split(' ').filter(Boolean);
     else if (a === '-h' || a === '--help') opts.help = true;
     else if (a === '-v' || a === '--version') opts.version = true;
@@ -155,13 +169,25 @@ if (opts.workspaces && opts.diff && opts.diff !== true) {
 const selection = selectChecks({
   only: opts.only,
   skip: [].concat(opts.skip || [], opts.skipRequire ? ['require'] : []),
-  requested: { diff: !!opts.diff, lazy: !!opts.lazy },
+  requested: { diff: !!opts.diff, lazy: !!opts.lazy, node: !!(opts.node && opts.node.length) },
 });
 if (!selection.ok) {
   console.error(`packproof: ${selection.error}`);
   process.exit(2);
 }
 opts.selection = selection;
+
+// Same rule for --node: an interpreter that cannot be found or cannot be run is
+// an error before anything is packed, never a mystery failure halfway through.
+if (opts.node) {
+  const { resolveNodes } = await import('./engines.js');
+  const resolved = resolveNodes(opts.node);
+  if (!resolved.ok) {
+    console.error(`packproof: ${resolved.error}`);
+    process.exit(2);
+  }
+  opts.nodes = resolved.nodes;
+}
 
 const format = opts.format || 'human';
 if (!FORMAT_NAMES.includes(format)) {

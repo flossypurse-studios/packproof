@@ -214,3 +214,46 @@ test('--help names every check id', { timeout: TIMEOUT }, async () => {
     assert.match(r.stdout, new RegExp(`\\n  ${id}\\s`));
   }
 });
+
+test('--node refuses a version this machine does not have, before packing anything', () => {
+  const r = run(['test/fixtures/good-cjs', '--node', '999']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--node 999: no node 999 is installed/);
+  assert.equal(r.stdout, '', 'nothing was packed');
+});
+
+test('--node refuses a value it cannot use, and says what the flag takes', () => {
+  const missing = run(['test/fixtures/good-cjs', '--node']);
+  assert.equal(missing.code, 2);
+  assert.match(missing.stderr, /--node needs a value/);
+
+  const notNode = run(['test/fixtures/good-cjs', '--node', '/definitely/not/here/node']);
+  assert.equal(notNode.code, 2);
+  assert.match(notNode.stderr, /could not run it/);
+});
+
+test('--node with --skip engines is refused rather than resolved', () => {
+  const r = run(['test/fixtures/good-cjs', '--node', '18', '--skip', 'engines']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--node names the Node the engines check runs under/);
+});
+
+test('--node <path to a real node> runs the engines check under it', { timeout: TIMEOUT }, async () => {
+  // process.execPath is the one node every machine running this test has.
+  const r = run(['test/fixtures/good-cjs', '--node', process.execPath, '--json']);
+  assert.equal(r.code, 0);
+  const out = JSON.parse(r.stdout);
+  const running = process.version.replace(/^v/, '');
+  const engines = out.checks.filter((c) => c.node === running);
+  assert.equal(engines.length, 1, `expected one check run under ${running}: ${JSON.stringify(out.checks.map((c) => c.name))}`);
+  assert.equal(engines[0].pass, true);
+  // The fixture declares no engines.node, so the report says so instead of
+  // pretending the run confirmed a promise nobody made.
+  assert.match(engines[0].name, new RegExp(`node v${running.replace(/\./g, '\\.')}, which nothing declares`));
+});
+
+test('--help documents --node', () => {
+  const r = run(['--help']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /\n  --node <ver\|path>/);
+});
