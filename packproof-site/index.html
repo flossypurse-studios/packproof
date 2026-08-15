@@ -241,7 +241,7 @@ packproof --workspaces --format=junit --out packproof.xml</pre>
       .env.production — an environment file, which is where secrets normally live
       also accidental: .DS_Store, coverage/lcov.info</span></pre>
   </div>
-  <p>Cruft is <em>not</em> a failure. A <code class="inline-code">.DS_Store</code>, a shipped <code class="inline-code">node_modules</code>, coverage output, a <code>.tgz</code> inside the <code>.tgz</code> — those cost your users bytes but leak nothing, so they ride along as a note on a passing check:</p>
+  <p>Cruft is <em>not</em> a failure. A <code class="inline-code">.DS_Store</code>, a shipped <code class="inline-code">node_modules</code>, coverage output, a <code>.tgz</code> inside the <code>.tgz</code> — those cost your users bytes but leak nothing, so they ride along as a note on a passing check — unless you ask otherwise with <code class="inline-code">--strict</code>:</p>
   <div class="term">
     <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
 <pre>  <span class="c-green">✓</span> shipped files <span class="c-muted">— 41 files; 2 look accidental — .DS_Store, coverage/lcov.info</span></pre>
@@ -276,7 +276,7 @@ packproof --registry pkg@2.0.0 --diff 1.9.0   <span class="c-comment"># two publ
     <tr><th>What's gone</th><th>What packproof does</th></tr>
     <tr><td>a path the published <code>package.json</code> pointed at — <code>main</code>, <code>module</code>, <code>types</code>, <code>browser</code>, <code>exports</code> (wildcards included), <code>bin</code></td><td class="desc"><strong>fails</strong> as <code>dropped-entry-point</code>: somebody's <code>import 'pkg/thing'</code> used to land on a file and now lands on nothing</td></tr>
     <tr><td>every <code>.d.ts</code>, where the last version had them</td><td class="desc"><strong>fails</strong> as <code>dropped-types</code>: nothing at runtime imports a declaration file, so no probe on earth would notice</td></tr>
-    <tr><td>anything else</td><td class="desc"><strong>named, on a passing check</strong>: deleting an internal file is normal, and deciding for you whether you meant it isn't packproof's job</td></tr>
+    <tr><td>anything else</td><td class="desc"><strong>named, on a passing check</strong>: deleting an internal file is normal, and deciding for you whether you meant it isn't packproof's job — <code>--strict</code> makes it a <code>dropped-file</code> failure</td></tr>
   </table>
   <p class="muted" style="margin-top:16px">A first release has nothing to compare against and says so rather than failing. If the registry is unreachable or the version you named doesn't exist, that's a <code>diff-unavailable</code> failure on its own line and the rest of the report still stands. It compares <strong>paths</strong>: a rename reads as a deletion beside an addition, both printed, and you decide. With <code>--workspaces</code>, a bare <code>--diff</code> compares each package against its own published latest; one explicit version across several packages is refused rather than guessed at.</p>
 </section>
@@ -360,6 +360,9 @@ npm i -D packproof</pre>
     <tr><td><code>dropped-entry-point</code></td><td class="desc"><code>--diff</code> only: a path the published version resolved imports to is gone from this tarball</td></tr>
     <tr><td><code>dropped-types</code></td><td class="desc"><code>--diff</code> only: the last version shipped type declarations and this one ships none</td></tr>
     <tr><td><code>diff-unavailable</code></td><td class="desc"><code>--diff</code> only: the version to compare against could not be read, so nothing can be claimed about it</td></tr>
+    <tr><td><code>shipped-cruft</code></td><td class="desc"><code>--strict</code> only: accidental-looking files in the tarball, a note by default</td></tr>
+    <tr><td><code>dropped-file</code></td><td class="desc"><code>--strict</code> only: a file gone since the last release that nothing declared, a note by default</td></tr>
+    <tr><td><code>bin-nonzero-exit</code></td><td class="desc"><code>--strict</code> only: a bin that loads and runs but exits nonzero, a note by default</td></tr>
     <tr><td><code>integrity-mismatch</code></td><td class="desc"><code>--registry</code> only: the downloaded tarball isn't the bytes the registry has on record</td></tr>
   </table>
 </section>
@@ -381,6 +384,7 @@ npm i -D packproof</pre>
     <tr><td><code>--ignore-scripts</code></td><td class="desc">install with <code>--ignore-scripts</code> (packproof otherwise runs your postinstall, like a user would)</td></tr>
     <tr><td><code>--skip-require</code></td><td class="desc">only probe ESM <code>import</code>, not <code>require()</code></td></tr>
     <tr><td><code>--lazy</code></td><td class="desc">also read back every shipped <code>.js</code>/<code>.mjs</code>/<code>.cjs</code> file and check the imports that never execute</td></tr>
+    <tr><td><code>--strict</code></td><td class="desc">fail on everything packproof would otherwise only note — accidental files in the tarball, a file that stopped shipping without being a declared entry point, and a bin that runs but exits nonzero. Same findings, stricter verdict.</td></tr>
     <tr><td><code>--bin-args &lt;args&gt;</code></td><td class="desc">args passed to each bin (default <code>--version</code>)</td></tr>
   </table>
 
@@ -405,7 +409,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check.</p>
 </section>
 
 </div>

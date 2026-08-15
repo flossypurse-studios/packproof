@@ -132,6 +132,7 @@ export function checkFileDiff({
   previousManifest = {},
   files = [],
   sameVersion = false,
+  strict = false,
 } = {}) {
   const name = `shipped files vs ${previousVersion}`;
   const d = diffFileLists(previousFiles, files);
@@ -186,12 +187,33 @@ export function checkFileDiff({
   const parts = [];
   if (quiet.length) parts.push(`-${quiet.length} gone: ${listOf(quiet)}`);
   if (d.added.length) parts.push(`+${d.added.length} new: ${listOf(d.added)}`);
+  const summary = `${counts}; ${parts.join('; ')}${alsoSame}`;
+
+  // Under --strict, a file that stopped shipping is a failure even when the
+  // published package.json never pointed at it: somebody may still be deep-
+  // importing it, and only you know whether that was meant to happen.
+  if (strict && quiet.length) {
+    return {
+      name,
+      pass: false,
+      kind: 'dropped-file',
+      paths: quiet,
+      removed: d.removed,
+      added: d.added,
+      hint:
+        `${plural(quiet.length, 'file')} that ${previousVersion} shipped ${quiet.length === 1 ? 'is' : 'are'} not in this tarball. ` +
+        `Nothing the published package.json resolves imports to is missing, so this is only a failure because you asked for --strict — ` +
+        `but a deep import of ${quiet.length === 1 ? 'it' : 'them'} stops working all the same.`,
+      detail: [summary, `gone: ${listOf(quiet)}`].join('\n'),
+    };
+  }
+
   return {
     name,
     pass: true,
     removed: d.removed,
     added: d.added,
-    note: `${counts}; ${parts.join('; ')}${alsoSame}`,
+    note: summary,
   };
 }
 
@@ -234,7 +256,7 @@ export async function fetchPublishedFiles(spec, { registryUrl = DEFAULT_REGISTRY
  * and a version that does not exist are reported as a failed check rather than
  * thrown, so one unreachable registry never hides the rest of the report.
  */
-export async function diffAgainstPublished({ manifest = {}, files = [], diff, registryUrl, currentVersion } = {}) {
+export async function diffAgainstPublished({ manifest = {}, files = [], diff, registryUrl, currentVersion, strict = false } = {}) {
   const spec = diffSpec(diff, manifest.name);
   let got;
   try {
@@ -269,6 +291,7 @@ export async function diffAgainstPublished({ manifest = {}, files = [], diff, re
     previousManifest: got.manifest,
     files,
     sameVersion: !!currentVersion && currentVersion === got.version,
+    strict,
   });
   return {
     check,

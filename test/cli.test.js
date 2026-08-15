@@ -134,3 +134,9 @@ test('a bare --diff is accepted alongside --workspaces', () => {
   const r = run(['test/fixtures/good-cjs', '--workspaces', '--diff']);
   assert.doesNotMatch(r.stderr || '', /use a bare --diff/);
 });
+
+test('--strict is documented in --help', () => {
+  const r = run(['--help']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /--strict\s+fail on everything packproof would otherwise only note/);
+});

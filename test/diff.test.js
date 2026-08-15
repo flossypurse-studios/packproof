@@ -159,3 +159,50 @@ test('diffSpec turns a bare version into this package at that version', () => {
   assert.equal(diffSpec('@scope/other@1.0.0', 'pkg'), '@scope/other@1.0.0');
   assert.equal(diffSpec('@scope/other', 'pkg'), '@scope/other@latest');
 });
+
+test('--strict fails on a file that stopped shipping but was never declared', () => {
+  const args = {
+    previousVersion: 'pkg@1.2.0',
+    previousFiles: ['package.json', 'index.js', 'lib/extra.js'],
+    previousManifest: { name: 'pkg', main: 'index.js' },
+    files: ['package.json', 'index.js'],
+  };
+  const lenient = checkFileDiff(args);
+  assert.equal(lenient.pass, true);
+  assert.match(lenient.note, /-1 gone: lib\/extra\.js/);
+
+  const strict = checkFileDiff({ ...args, strict: true });
+  assert.equal(strict.pass, false);
+  assert.equal(strict.kind, 'dropped-file');
+  assert.deepEqual(strict.paths, ['lib/extra.js']);
+  assert.deepEqual(strict.removed, ['lib/extra.js']);
+  assert.match(strict.hint, /--strict/);
+  assert.match(strict.detail, /3 files → 2/);
+});
+
+test('--strict does not touch added-only or identical file lists', () => {
+  const added = {
+    previousVersion: 'pkg@1.2.0',
+    previousFiles: ['package.json', 'index.js'],
+    previousManifest: { name: 'pkg', main: 'index.js' },
+    files: ['package.json', 'index.js', 'lib/new.js'],
+  };
+  assert.deepEqual(checkFileDiff({ ...added, strict: true }), checkFileDiff(added));
+  assert.equal(checkFileDiff({ ...added, strict: true }).pass, true);
+
+  const same = { ...added, files: ['package.json', 'index.js'] };
+  assert.deepEqual(checkFileDiff({ ...same, strict: true }), checkFileDiff(same));
+  assert.equal(checkFileDiff({ ...same, strict: true }).pass, true);
+});
+
+test('--strict still reports a dropped entry point as dropped-entry-point', () => {
+  const chk = checkFileDiff({
+    previousVersion: 'pkg@1.2.0',
+    previousFiles: ['package.json', 'index.js', 'lib/extra.js'],
+    previousManifest: { name: 'pkg', main: 'index.js' },
+    files: ['package.json'],
+    strict: true,
+  });
+  assert.equal(chk.pass, false);
+  assert.equal(chk.kind, 'dropped-entry-point');
+});

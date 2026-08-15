@@ -92,7 +92,7 @@ export async function packproof(target = '.', opts = {}) {
   const files = tarballFiles(tarball);
   // What shipped is a fact about the release on its own: report it before the
   // install, so a leaked credential is still named even if nothing installs.
-  checks.push(checkShippedFiles(files));
+  checks.push(checkShippedFiles(files, { strict: opts.strict }));
   // What the last release shipped is the only honest baseline for what this one
   // should contain, and asking the registry costs one request. Before the install,
   // because it is a fact about the file list and needs nothing installed.
@@ -104,6 +104,7 @@ export async function packproof(target = '.', opts = {}) {
       diff: opts.diff,
       registryUrl: opts.registryUrl || DEFAULT_REGISTRY,
       currentVersion: manifest.version,
+      strict: opts.strict,
     });
     checks.push(got.check);
     fileDiff = got.diff;
@@ -159,7 +160,7 @@ export async function packproof(target = '.', opts = {}) {
     });
     checks.push(...checkEntries(room, manifest));
     if (!opts.skipRequire) checks.push(...checkRequire(room, manifest));
-    checks.push(...checkBins(room, manifest, { binArgs: opts.binArgs }));
+    checks.push(...checkBins(room, manifest, { binArgs: opts.binArgs, strict: opts.strict }));
     if (opts.lazy) {
       // Don't say the same thing twice: if loading already blew up on a package,
       // the deep probe has nothing to add about it.

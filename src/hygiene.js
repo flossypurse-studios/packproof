@@ -115,7 +115,7 @@ function listOf(findings, cap = 6) {
  * The `shipped files` check. Always runs — it needs the file list and nothing
  * else, so it reports even when the install itself fails.
  */
-export function checkShippedFiles(files = []) {
+export function checkShippedFiles(files = [], { strict = false } = {}) {
   const { secrets, junk } = inspectShippedFiles(files);
   const count = `${files.length} file${files.length === 1 ? '' : 's'}`;
 
@@ -138,11 +138,25 @@ export function checkShippedFiles(files = []) {
   }
 
   if (junk.length) {
+    const summary = `${count}; ${junk.length} look${junk.length === 1 ? 's' : ''} accidental — ${listOf(junk)}`;
+    if (strict) {
+      return {
+        name: 'shipped files',
+        pass: false,
+        kind: 'shipped-cruft',
+        paths: junk.map((f) => f.path),
+        hint:
+          `${junk.length === 1 ? 'a file' : 'files'} in this tarball ${junk.length === 1 ? 'looks' : 'look'} accidental rather than intended. ` +
+          `Nothing here is a credential, so this is only a failure because you asked for --strict. ` +
+          `Keep ${junk.length === 1 ? 'it' : 'them'} out with "files" in package.json or .npmignore.`,
+        detail: [summary, ...junk.map((f) => `${f.path} — ${f.what}`)].join('\n'),
+      };
+    }
     return {
       name: 'shipped files',
       pass: true,
       paths: junk.map((f) => f.path),
-      note: `${count}; ${junk.length} look${junk.length === 1 ? 's' : ''} accidental — ${listOf(junk)}`,
+      note: summary,
     };
   }
 

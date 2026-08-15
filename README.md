@@ -117,6 +117,7 @@ packproof [path-or-tarball] [options]
   --ignore-scripts    install with --ignore-scripts
   --skip-require      only probe ESM import, not require()
   --lazy              also scan shipped source for imports that never execute
+  --strict            fail on everything packproof would otherwise only note
   --bin-args <args>   args passed to each bin (default: --version)
   -h, --help          show help
   -v, --version       show packproof's version
@@ -204,6 +205,33 @@ registry is unreachable or the version you named does not exist, that is a
 `diff-unavailable` failure on its own line — the rest of the report still stands. With
 `--workspaces`, use a bare `--diff` so each package is compared against its own published
 latest; a single explicit version across several packages is refused rather than guessed at.
+
+### Everything, strictly (`--strict`)
+
+```sh
+packproof --strict                    # every note becomes a failure
+packproof --diff --strict             # including anything that stopped shipping
+```
+
+Three of packproof's findings are deliberately *notes* on a passing check, because they
+are facts about a release that may or may not be a mistake and only you know which:
+accidental-looking files in the tarball, a file that stopped shipping without being
+something the published `package.json` pointed at, and a bin that runs fine but exits
+nonzero. Guessing your intent is not packproof's job — but neither is deciding for a CI
+pipeline that wants none of it. `--strict` is that choice, made explicitly:
+
+| finding | default | `--strict` |
+| --- | --- | --- |
+| `.DS_Store`, `node_modules/`, a `.tgz`, coverage output in the tarball | note | fails as `shipped-cruft` |
+| a file gone since the last release that nothing declared (`--diff`) | note | fails as `dropped-file` |
+| a bin that loads and runs but exits nonzero | note | fails as `bin-nonzero-exit` |
+
+`--strict` changes verdicts, never findings. It does not look for anything extra, does not
+read file contents, and does not touch any check that already fails: a shipped `.npmrc` is
+still `shipped-secret`, a missing entry point is still `dropped-entry-point`, and a run
+with nothing to promote prints exactly the same report either way. Every strict failure
+says in its hint that it is a failure *because you asked for one*, so nobody reading your
+CI log has to go and find out why.
 
 ### Monorepos (`--workspaces`)
 
@@ -334,12 +362,13 @@ A minimal workflow step:
   `.env`, an SSH private key, a key store, `.aws/credentials`. Those fail the run
   (`shipped-secret`). Cruft — `.DS_Store`, a shipped `node_modules`, coverage
   output, a `.tgz` inside the `.tgz` — is reported as a note, because it costs
-  bytes but leaks nothing. Path matching only: packproof never reads the contents of
-  a file to decide it is a secret.
+  bytes but leaks nothing (`--strict` makes it a `shipped-cruft` failure). Path
+  matching only: packproof never reads the contents of a file to decide it is a secret.
 - **the file list against the last release** (`--diff`) — the shipped paths compared to
   those of an already-published version. A path the published `package.json` resolved
   imports to that is gone fails (`dropped-entry-point`), types disappearing entirely fails
-  (`dropped-types`), and any other file that stopped shipping is named on a passing check.
+  (`dropped-types`), and any other file that stopped shipping is named on a passing check
+  (`--strict` makes that a `dropped-file` failure).
 - **lazy imports** (`--lazy`) — every `.js`/`.mjs`/`.cjs` file that actually shipped is
   read back out of the clean room and scanned for bare `import`/`require` specifiers,
   resolved against your declared dependencies. This covers a gap nothing else does: **a
@@ -350,7 +379,8 @@ A minimal workflow step:
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
 `workspace-sibling-dependency`, `shipped-secret`, `dropped-entry-point`, `dropped-types`,
-`diff-unavailable`, `integrity-mismatch`. The
+`diff-unavailable`, `integrity-mismatch`, and under `--strict` also `shipped-cruft`,
+`dropped-file`, `bin-nonzero-exit`. The
 classification is the useful part — "it broke" is not actionable, "your devDependency
 leaked" is.
 
@@ -401,7 +431,8 @@ runs `publint && packproof`.
   also only reads files that actually shipped in the tarball, so anything excluded from
   `files` is out of scope by construction.
 - **Bins are run with `--version` by default.** If your CLI doesn't support it, a nonzero
-  exit is reported as a note, not a failure; use `--bin-args` to give it something real.
+  exit is reported as a note, not a failure; use `--bin-args` to give it something real, or
+  `--strict` to make the note a failure.
 - **It runs a real `npm install`.** That means the network, if you have dependencies, and
   a few seconds. It also means postinstall scripts run — pass `--ignore-scripts` if you'd
   rather they didn't.
@@ -422,6 +453,10 @@ runs `publint && packproof`.
   `.npmrc` with nothing in it is still reported, and a token hard-coded in
   `dist/index.js` is not. It also cannot see a file you did not ship: the list it
   reads is the tarball's.
+- **`--strict` promotes verdicts, it does not find more.** It turns packproof's three
+  notes into failures and nothing else: no extra scanning, no new classes of finding, and
+  no effect on a run that had nothing to note. If you want packproof to be quieter rather
+  than louder, there is no flag for that — a fact it found is always printed.
 - **`--diff` compares paths, and only against one version.** It does not read a file to
   see whether its contents changed, it cannot tell a rename from a deletion plus an
   addition (both are reported, side by side, and you decide), and the baseline is whatever

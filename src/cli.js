@@ -46,6 +46,11 @@ Options
   --lazy              also read the shipped source for imports hidden inside
                       functions and branches that merely loading the package
                       never reaches, and check those are declared too
+  --strict            fail on everything packproof would otherwise only note:
+                      accidental files in the tarball, a file that stopped
+                      shipping without being a declared entry point, and a bin
+                      that runs but exits nonzero. Same findings, stricter
+                      verdict — for CI that wants none of it.
   --bin-args <args>   args passed to each bin (default: --version)
   -h, --help          show this
   -v, --version       show packproof's version
@@ -80,6 +85,7 @@ function parse(argv) {
     else if (a === '--ignore-scripts') opts.ignoreScripts = true;
     else if (a === '--skip-require') opts.skipRequire = true;
     else if (a === '--lazy') opts.lazy = true;
+    else if (a === '--strict') opts.strict = true;
     else if (a === '--bin-args') opts.binArgs = String(argv[++i] ?? '').split(' ').filter(Boolean);
     else if (a === '-h' || a === '--help') opts.help = true;
     else if (a === '-v' || a === '--version') opts.version = true;

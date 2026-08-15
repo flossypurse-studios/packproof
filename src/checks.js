@@ -155,7 +155,7 @@ export function checkRequire(room, manifest) {
 const NOT_EXECUTABLE = /Syntax error|exec format error|ENOEXEC|cannot execute|command not found|: not found/i;
 
 /** Actually execute each declared bin. A bin that cannot start is a broken package. */
-export function checkBins(room, manifest, { binArgs = ['--version'] } = {}) {
+export function checkBins(room, manifest, { binArgs = ['--version'], strict = false } = {}) {
   const bin = manifest.bin;
   if (!bin) return [];
   const names =
@@ -197,6 +197,20 @@ export function checkBins(room, manifest, { binArgs = ['--version'] } = {}) {
       continue;
     }
     // A nonzero exit is not automatically a packaging bug: --version may be unsupported.
+    // Under --strict you have said you want to hear about it anyway.
+    if (strict && !r.ok) {
+      results.push({
+        name: `bin "${name}"`,
+        pass: false,
+        kind: 'bin-nonzero-exit',
+        hint:
+          `${name} ran and exited ${r.status} with ${binArgs.join(' ')}. It loaded, so this is not necessarily a ` +
+          `packaging problem — --version may simply be unsupported — but it is a failure because you asked for --strict. ` +
+          `Use --bin-args to give it something it does support.`,
+        detail: firstLines(combined) || `exited ${r.status}`,
+      });
+      continue;
+    }
     results.push({
       name: `bin "${name}"`,
       pass: true,

@@ -1,6 +1,6 @@
 {
   "name": "packproof",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Install your npm package like a stranger would — before they do. Clean-room smoke test for the tarball you are about to publish, or any version already on the registry.",
   "type": "module",
   "exports": {

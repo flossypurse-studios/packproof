@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { entrySpecifiers, classifyLoadFailure, firstLines } from '../src/checks.js';
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { entrySpecifiers, classifyLoadFailure, firstLines, checkBins } from '../src/checks.js';
 import { packageNameOf, codeOnly, scanSource } from '../src/lazy.js';
 
 test('entrySpecifiers: main only', () => {
@@ -153,4 +156,46 @@ test('scanSource finds every import form with the right line number', () => {
 test('scanSource does not report a regex literal as a comment boundary', () => {
   const hits = scanSource("const re = /https?:\\/\\//; const x = require('zeta');");
   assert.deepEqual(hits.map((h) => h.pkg), ['zeta']);
+});
+
+// checkBins needs only a directory with node_modules/.bin/<name> in it — no
+// install — so the strict promotion can be tested against a real process exit.
+function roomWithBin(script) {
+  const dir = mkdtempSync(join(tmpdir(), 'packproof-bin-'));
+  const binDir = join(dir, 'node_modules', '.bin');
+  mkdirSync(binDir, { recursive: true });
+  const file = join(binDir, 'toolish');
+  writeFileSync(file, script);
+  chmodSync(file, 0o755);
+  return { dir };
+}
+
+const MANIFEST = { name: 'toolish', bin: { toolish: 'cli.js' } };
+
+test('a bin that exits nonzero is a note by default and a failure under --strict', () => {
+  const room = roomWithBin('#!/usr/bin/env node\nconsole.error("unknown flag: --version");\nprocess.exit(3);\n');
+  try {
+    const [lenient] = checkBins(room, MANIFEST);
+    assert.equal(lenient.pass, true);
+    assert.equal(lenient.note, 'exited 3 (not necessarily a packaging problem)');
+
+    const [strict] = checkBins(room, MANIFEST, { strict: true });
+    assert.equal(strict.pass, false);
+    assert.equal(strict.kind, 'bin-nonzero-exit');
+    assert.equal(strict.name, 'bin "toolish"');
+    assert.match(strict.hint, /--strict/);
+    assert.match(strict.hint, /exited 3/);
+  } finally {
+    rmSync(room.dir, { recursive: true, force: true });
+  }
+});
+
+test('a bin that exits zero passes identically with and without --strict', () => {
+  const room = roomWithBin('#!/usr/bin/env node\nconsole.log("1.0.0");\n');
+  try {
+    assert.deepEqual(checkBins(room, MANIFEST, { strict: true }), checkBins(room, MANIFEST));
+    assert.equal(checkBins(room, MANIFEST, { strict: true })[0].pass, true);
+  } finally {
+    rmSync(room.dir, { recursive: true, force: true });
+  }
 });

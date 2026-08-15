@@ -130,3 +130,30 @@ test('directory entries and empty paths are ignored', () => {
   assert.deepEqual(paths(secrets), ['.npmrc']);
   assert.deepEqual(paths(junk), []);
 });
+
+test('--strict promotes accidental files from a note to a failure', () => {
+  const files = ['package.json', 'dist/index.js', '.DS_Store', 'debug.log'];
+  const lenient = checkShippedFiles(files);
+  assert.equal(lenient.pass, true);
+  assert.equal(lenient.kind, undefined);
+
+  const strict = checkShippedFiles(files, { strict: true });
+  assert.equal(strict.pass, false);
+  assert.equal(strict.kind, 'shipped-cruft');
+  assert.deepEqual(strict.paths, ['.DS_Store', 'debug.log']);
+  assert.match(strict.hint, /--strict/);
+  // The finding itself is unchanged — only the verdict moved.
+  assert.match(strict.detail, /^4 files; 2 look accidental — \.DS_Store, debug\.log$/m);
+  assert.match(strict.detail, /\.DS_Store — OS metadata/);
+});
+
+test('--strict leaves the secret and clean verdicts exactly as they were', () => {
+  const secret = ['package.json', '.npmrc', '.DS_Store'];
+  const a = checkShippedFiles(secret);
+  const b = checkShippedFiles(secret, { strict: true });
+  assert.deepEqual(b, a);
+  assert.equal(b.kind, 'shipped-secret');
+
+  const clean = ['package.json', 'dist/index.js'];
+  assert.deepEqual(checkShippedFiles(clean, { strict: true }), checkShippedFiles(clean));
+});
