@@ -63,6 +63,10 @@ export function githubAnnotations(result) {
   // showing only green annotations must never imply a full proof.
   const notice = githubSkippedNotice(result);
   if (notice) lines.push(notice);
+  // A run configured by a file says so here too: a log that shows only the
+  // outcome, and not that a file chose what was checked, is half a report.
+  const config = configNotice(result);
+  if (config) lines.push(config);
   return lines.join('\n') + '\n';
 }
 
@@ -119,6 +123,22 @@ function githubCleanNotice(result) {
   )}`;
 }
 
+/**
+ * The one-line summary of the config file this run used, if it used one. The
+ * CLI renders it (src/config.js owns the wording) and puts it in the result, so
+ * every format shows the reader the same sentence.
+ */
+export function configSummaryOf(result) {
+  const runs = runsOf(result);
+  const from = (result && result.config) || runs.map((r) => r.config).find(Boolean);
+  return (from && from.summary) || null;
+}
+
+function configNotice(result) {
+  const summary = configSummaryOf(result);
+  return summary ? `::notice title=packproof::${escapeData(summary)}` : null;
+}
+
 /** A packproof error (exit 2) still has to be visible in the log. */
 export function githubError(message) {
   return `::error title=packproof::${escapeData(message)}\n`;
@@ -152,6 +172,10 @@ export function junitXml(result) {
     result.durationMs
   )}"`;
   const out = ['<?xml version="1.0" encoding="UTF-8"?>', `<testsuites name="packproof" ${counts}>`];
+  const summary = configSummaryOf(result);
+  if (summary) {
+    out.push('  <properties>', `    <property name="packproof.config" value="${xml(summary)}" />`, '  </properties>');
+  }
   for (const run of runs) out.push(...junitSuite(run));
   out.push('</testsuites>', '');
   return out.join('\n');
@@ -214,4 +238,4 @@ export function junitError(message, name = 'packproof') {
   ].join('\n');
 }
 
-export const FORMATS = { names: FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError, runsOf, skippedOf };
+export const FORMATS = { names: FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError, runsOf, skippedOf, configSummaryOf };

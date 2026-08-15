@@ -2,6 +2,9 @@
 import { packproof, packproofWorkspaces } from './index.js';
 import { FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError } from './format.js';
 import { CHECK_IDS, CHECK_HELP, selectChecks, verdictLine } from './select.js';
+import { CONFIG_FILENAME, CONFIG_KEYS, parseConfig, mergeConfig, configSummary } from './config.js';
+
+const CONFIG_LINES = Object.entries(CONFIG_KEYS).map(([k, v]) => `  ${k.padEnd(16)}${v.help}`).join('\n');
 
 const CHECK_LINES = CHECK_IDS.map((id) => `  ${id.padEnd(18)}${CHECK_HELP[id]}`).join('\n');
 
@@ -75,6 +78,9 @@ Options
                       anything says so in every format — the verdict line
                       never claims more than the run actually proved.
   --bin-args <args>   args passed to each bin (default: --version)
+  --config <path>     read this config file instead of looking for one
+                      (missing file: error, not a shrug)
+  --no-config         ignore any packproof.json
   -h, --help          show this
   -v, --version       show packproof's version
 
@@ -84,14 +90,56 @@ ${CHECK_LINES}
   The import probes need the install: --skip install drops them too, and
   says so. Skipping the install means the run never proves the package
   installs — packproof will not print that it does.
+
+Config file (packproof.json, beside your package.json)
+${CONFIG_LINES}
+
+  Say your lane once instead of in every CI job. A flag on the command
+  line always beats the file, an unknown key is an error, and a run that
+  used a file prints one line saying so and what it said — behaviour the
+  reader of a log cannot see is the thing this tool exists to prevent.
+  Nothing per-invocation lives there (--registry, --diff <version>, --out,
+  --keep), and there is no "packproof" key in package.json: that file ships
+  inside the tarball packproof is checking.
 `;
 
+/**
+ * Which command-line flag stands for which config key. Only used to record that
+ * the user typed something: the flag's own parsing is unchanged below.
+ */
+const FLAG_KEYS = [
+  ['--only', 'only'],
+  ['--skip', 'skip'],
+  ['--node', 'node'],
+  ['--bin-args', 'binArgs'],
+  ['--lazy', 'lazy'],
+  ['--strict', 'strict'],
+  ['--ignore-scripts', 'ignoreScripts'],
+  ['--workspaces', 'workspaces'],
+  ['--workspace', 'workspaces'],
+  ['--include-private', 'includePrivate'],
+  ['--diff', 'diff'],
+  ['--format', 'format'],
+  ['--json', 'format'],
+  ['--registry-url', 'registryUrl'],
+];
+
 function parse(argv) {
-  const opts = { target: '.', binArgs: ['--version'] };
+  // `provided` records what the user actually typed, so a config file can be
+  // folded in underneath it without ever beating a flag. A default (binArgs)
+  // is not "provided": nobody typed it.
+  const provided = new Set();
+  const opts = { target: '.', binArgs: ['--version'], provided };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--registry') {
+    for (const [flag, key] of FLAG_KEYS) {
+      if (a === flag || a.startsWith(flag + '=')) provided.add(key);
+    }
+    if (a === '--config') opts.configPath = String(argv[++i] ?? '');
+    else if (a.startsWith('--config=')) opts.configPath = a.slice('--config='.length);
+    else if (a === '--no-config') opts.noConfig = true;
+    else if (a === '--registry') {
       const next = argv[i + 1];
       if (next === undefined || next.startsWith('-')) opts.registry = true;
       else opts.registry = argv[++i];
@@ -150,6 +198,67 @@ if (opts.version) {
   process.exit(0);
 }
 if (opts.unknown) { console.error(`packproof: unknown option ${opts.unknown}\n`); process.stdout.write(HELP); process.exit(2); }
+
+/**
+ * Find and read the config file, if there is one to read.
+ *
+ * Discovery is one directory deep and nothing more: `packproof.json` beside the
+ * target's package.json (or beside the working directory, when the target is a
+ * tarball and has no package.json of its own). No parent search, no package.json
+ * key — see src/config.js for why. `--config` names one explicitly and a missing
+ * one is an error, because a file you asked for by name and did not get is not
+ * something to carry on quietly without.
+ */
+async function loadConfig() {
+  if (opts.noConfig && opts.configPath) {
+    console.error('packproof: --config names a file and --no-config ignores every file — pick one');
+    process.exit(2);
+  }
+  if (opts.noConfig) return null;
+  const { readFileSync, existsSync } = await import('node:fs');
+  const { resolve, join, relative, isAbsolute } = await import('node:path');
+  const display = (p) => {
+    const rel = relative(process.cwd(), p);
+    return !rel || rel.startsWith('..') || isAbsolute(rel) ? p : rel;
+  };
+
+  let file;
+  if (opts.configPath) {
+    file = resolve(process.cwd(), opts.configPath);
+    if (!existsSync(file)) {
+      console.error(`packproof: --config ${opts.configPath}: no such file`);
+      process.exit(2);
+    }
+  } else {
+    const isTarball = /\.(tgz|tar\.gz)$/.test(opts.target || '');
+    const dir = isTarball ? process.cwd() : resolve(process.cwd(), opts.target || '.');
+    file = join(dir, CONFIG_FILENAME);
+    if (!existsSync(file)) return null;
+  }
+
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (e) {
+    console.error(`packproof: ${display(file)}: ${e.message}`);
+    process.exit(2);
+  }
+  const parsed = parseConfig(text, { source: display(file) });
+  if (!parsed.ok) {
+    console.error(`packproof: ${parsed.error}`);
+    process.exit(2);
+  }
+  const merged = mergeConfig(parsed.config, opts, opts.provided);
+  Object.assign(opts, merged.opts);
+  const loaded = { path: display(file), applied: merged.applied, overridden: merged.overridden };
+  // The summary travels with the result so every format prints the same sentence.
+  loaded.summary = configSummary(loaded);
+  return loaded;
+}
+
+// The file is folded in before anything else is decided, so a lane written down
+// once is refused or accepted on exactly the same terms as one typed out.
+opts.config = await loadConfig();
 
 if (opts.workspaces && opts.registry) {
   console.error('packproof: --workspaces proves a checkout and --registry proves a published version — pick one');
@@ -221,6 +330,12 @@ if (format !== 'human') {
   else await emit(junitXml(result));
   process.exit(result.ok ? 0 : 1);
 }
+
+// Where the behaviour came from, before any of the behaviour. One line, always
+// printed when a file was read — including a file every flag overrode, because
+// it was still read and the reader still needs to know it exists.
+const configLine = opts.config && opts.config.summary;
+if (configLine) console.log(c.dim(configLine));
 
 /** One package's section: the header line, then every check under it. */
 function printPackage(r) {

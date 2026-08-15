@@ -4,6 +4,34 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
+## 0.14.0 — 2026-08-15
+
+**`packproof.json` — say your lane once.** packproof has enough flags now
+(`--only`/`--skip`, `--node`, `--lazy`, `--strict`, `--bin-args`, `--ignore-scripts`,
+`--format`, `--diff`) that a repo which has settled on one ends up retyping it in every CI
+job, every README line and every teammate's shell — and the day one copy drifts, two of
+them are lying about what gets proved. Put it in a `packproof.json` beside your
+`package.json`: `only`, `skip`, `node`, `binArgs`, `lazy`, `strict`, `ignoreScripts`,
+`workspaces`, `includePrivate`, `diff`, `format`, `registryUrl`.
+
+**A flag always beats the file, and the run says the file was there.** Not merged, not
+concatenated — if you typed `--skip`, the file's `skip` is not consulted. Every run that
+read a file prints one line first (`config — packproof.json: skip=install, node=18`),
+naming the file, what it applied and what a flag overrode; it is in `--json`
+(`config.summary`/`applied`/`overridden`), in `--format=github` as a notice and in
+`--format=junit` as a suite property. A run whose behaviour came out of a file the reader
+of the log cannot see is exactly the quiet lie this tool exists to prevent.
+
+**Unknown keys and wrong types are errors** (exit 2) naming the real keys, with a
+did-you-mean for a near miss (`unknown key "bin-args" — did you mean "binArgs"?`), the way
+an unknown `--only` id already was. A string is accepted wherever an array is. Discovery is
+one directory deep — beside the target's `package.json`, no parent search and deliberately
+**no `"packproof"` key in `package.json`**, which ships inside the tarball under test.
+`--config <path>` names a file explicitly (missing: exit 2, not a shrug) and `--no-config`
+ignores any. Nothing per-invocation (`--registry`, `--diff <version>`, `--out`, `--keep`,
+`--workspace`) is a config key. A repo with no config file behaves exactly as before,
+byte for byte.
+
 ## 0.13.0 — 2026-08-15
 
 **`--node <version|path>` — the escape hatch for the engines check.** Until now the

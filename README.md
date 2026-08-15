@@ -139,6 +139,8 @@ packproof [path-or-tarball] [options]
   --only <checks>     run only these checks (repeatable, comma-separated)
   --skip <checks>     run everything except these
   --bin-args <args>   args passed to each bin (default: --version)
+  --config <path>     read this config file instead of looking for packproof.json
+  --no-config         ignore any packproof.json
   -h, --help          show help
   -v, --version       show packproof's version
 ```
@@ -558,6 +560,77 @@ prints the real ones instead of guessing at your typo. Asking for an import prob
 (`--only entries`) implies the install, because that is a prerequisite and not a
 preference.
 
+### Saying it once (`packproof.json`)
+
+Once a repo has settled on a lane — `--skip install --strict` in the pre-commit hook,
+`--lazy --node 18` in CI — it ends up retyping it in every job, every README line and
+every teammate's shell. The day one copy drifts, two of them are lying about what gets
+proved. Put it in a `packproof.json` beside your `package.json`:
+
+```json
+{
+  "skip": ["install"],
+  "node": ["18", "22"],
+  "lazy": true,
+  "strict": true
+}
+```
+
+```
+$ packproof
+config — packproof.json: skip=install, node=18,22, lazy=true, strict=true
+packproof@1.4.0 — 17 files packed
+  ✓ shipped files — 17 files, no credentials or cruft
+  ...
+```
+
+That first line is not decoration and it is not optional. A run whose behaviour came out
+of a file the reader of the log cannot see is exactly the quiet lie packproof exists to
+prevent, so a run that read a file says which file and what it said — including a file
+whose every setting a flag overrode, because it was still read. It goes into
+`--json` (`config.summary`, `config.applied`, `config.overridden`), into
+`--format=github` as a notice and into `--format=junit` as a suite property.
+
+| key | type | same as |
+| --- | --- | --- |
+| `only` | string or array | `--only` |
+| `skip` | string or array | `--skip` |
+| `node` | string or array | `--node` |
+| `binArgs` | string or array | `--bin-args` |
+| `lazy` | boolean | `--lazy` |
+| `strict` | boolean | `--strict` |
+| `ignoreScripts` | boolean | `--ignore-scripts` |
+| `workspaces` | boolean | `--workspaces` |
+| `includePrivate` | boolean | `--include-private` |
+| `diff` | boolean | `--diff` (against the published latest) |
+| `format` | `human`/`json`/`github`/`junit` | `--format` |
+| `registryUrl` | string | `--registry-url` |
+
+The rules, all of which exist so the file can never do something you cannot see:
+
+- **A flag always beats the file.** Not merged, not concatenated: if you typed `--skip`,
+  the file's `skip` is not consulted at all, and the config line names what it beat.
+- **An unknown key is an error** (exit 2) that names the real keys, and a near miss is
+  named for you: `unknown key "bin-args" — did you mean "binArgs"?`. A typo'd setting
+  that silently does nothing is a green run that proved less than it claimed. Wrong types
+  are refused the same way; `$schema` and `"//"` are ignored so you can keep a comment.
+- **A string is accepted wherever an array is**, because the flag spelling
+  (`--only entries`) is a string: `"only": "entries"` and `"only": ["entries"]` are the
+  same thing.
+- **Discovery is one directory deep.** `packproof.json` beside the target's
+  `package.json`, and nowhere else — no parent-directory search, because a config
+  inherited from three levels up is behaviour you cannot see either. `--config <path>`
+  names one explicitly (a missing one is exit 2, not a shrug) and `--no-config` ignores
+  any file.
+- **Nothing per-invocation lives there.** `--registry`, `--diff <version>`, `--out`,
+  `--keep` and `--workspace` are properties of one run, not of the repo; a file that
+  pinned them would let two different jobs claim to have done the same run.
+
+There is deliberately **no `"packproof"` key in `package.json`**: that file ships inside
+the tarball packproof is checking, so a config key there would be published to every one
+of your users, and packproof would be reading its own settings out of the very file it is
+inspecting. One file, one job.
+
 ### What gets checked
 
 - **install** — `npm install <tarball>` into a directory containing nothing else.
@@ -712,6 +785,13 @@ runs `publint && packproof`.
   "this package installs", and the two are very different claims. packproof will never
   print the second one after a run that did not earn it, in any format — if your CI reads
   the exit code and nothing else, keep one full run somewhere before you publish.
+- **`packproof.json` is read, never written, and never inherited.** packproof will not
+  create one for you, will not merge one with another, and will not look in a parent
+  directory or in `package.json` — so a repo with no config file behaves exactly the way
+  every earlier version did, byte for byte. What it cannot help with is the copy of your
+  lane that lives somewhere it cannot see: a workflow that types out its own flags is
+  still free to disagree with the file, and the only sign of that is the config line
+  saying which settings the flags beat. Read it.
 - **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
   you downloaded are the bytes the registry has on record for that version; it is not
   provenance or a signature check.

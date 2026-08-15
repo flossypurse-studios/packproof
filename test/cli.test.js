@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -256,4 +256,129 @@ test('--help documents --node', () => {
   const r = run(['--help']);
   assert.equal(r.code, 0);
   assert.match(r.stdout, /\n  --node <ver\|path>/);
+});
+
+// --- packproof.json ---------------------------------------------------------
+
+/** A throwaway copy of a fixture, so a config file can sit beside it. */
+function fixtureWithConfig(config) {
+  const dir = mkdtempSync(join(tmpdir(), 'packproof-config-'));
+  cpSync(join(root, 'test', 'fixtures', 'good-cjs'), dir, { recursive: true });
+  if (config !== null) writeFileSync(join(dir, 'packproof.json'), JSON.stringify(config));
+  return dir;
+}
+
+test('packproof.json beside the package configures the run, and the report says so', { timeout: TIMEOUT }, async () => {
+  const dir = fixtureWithConfig({ skip: ['install'] });
+  try {
+    const r = run([dir]);
+    assert.equal(r.code, 0);
+    const first = r.stdout.split('\n')[0];
+    assert.match(first, /^config — .*packproof\.json: skip=install$/, `first line was: ${first}`);
+    assert.match(r.stdout, /- install — did not run, skipped with --skip/);
+    assert.match(r.stdout, /it never installed the package/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a flag beats the file, and the line admits which setting it beat', { timeout: TIMEOUT }, async () => {
+  const dir = fixtureWithConfig({ skip: ['install'], strict: true });
+  try {
+    const r = run([dir, '--skip', 'install,bins']);
+    assert.equal(r.code, 0);
+    assert.match(r.stdout.split('\n')[0], /packproof\.json: strict=true \(flags override skip\)$/);
+    assert.match(r.stdout, /- bins — did not run, skipped with --skip/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--no-config ignores the file entirely and prints no config line', { timeout: TIMEOUT }, async () => {
+  const dir = fixtureWithConfig({ skip: ['install'] });
+  try {
+    const r = run([dir, '--no-config', '--skip', 'install']);
+    assert.equal(r.code, 0);
+    assert.ok(!r.stdout.includes('config —'), `expected no config line:\n${r.stdout}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a run with no config file prints no config line', { timeout: TIMEOUT }, async () => {
+  const r = run(['test/fixtures/good-cjs', '--skip', 'install']);
+  assert.equal(r.code, 0);
+  assert.ok(!r.stdout.includes('config —'));
+});
+
+test('--config names a file, and a missing one is exit 2 rather than a shrug', { timeout: TIMEOUT }, async () => {
+  const dir = fixtureWithConfig(null);
+  try {
+    writeFileSync(join(dir, 'lane.json'), JSON.stringify({ skip: ['install'] }));
+    const ok = run([dir, '--config', join(dir, 'lane.json')]);
+    assert.equal(ok.code, 0);
+    assert.match(ok.stdout.split('\n')[0], /lane\.json: skip=install$/);
+
+    const missing = run([dir, '--config', join(dir, 'nope.json')]);
+    assert.equal(missing.code, 2);
+    assert.match(missing.stderr, /--config .*nope\.json: no such file/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--config with --no-config is a contradiction, refused before anything runs', () => {
+  const r = run(['test/fixtures/good-cjs', '--config', 'x.json', '--no-config']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--config names a file and --no-config ignores every file — pick one/);
+});
+
+test('an unknown key in the file is exit 2 naming the real keys', { timeout: TIMEOUT }, async () => {
+  const dir = fixtureWithConfig({ stict: true });
+  try {
+    const r = run([dir]);
+    assert.equal(r.code, 2);
+    assert.match(r.stderr, /packproof\.json: unknown key "stict" — pick from only, skip, node/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a contradiction written in the file is refused the same way a typed one is', { timeout: TIMEOUT }, async () => {
+  const dir = fixtureWithConfig({ only: ['entries'], skip: ['install'] });
+  try {
+    const r = run([dir]);
+    assert.equal(r.code, 2);
+    assert.match(r.stderr, /needs the package installed, and --skip install removes the install/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the config line reaches --json and --format=github too', { timeout: TIMEOUT }, async () => {
+  const dir = fixtureWithConfig({ skip: ['install'] });
+  try {
+    const asJson = JSON.parse(run([dir, '--json']).stdout);
+    assert.equal(asJson.config.summary.endsWith('packproof.json: skip=install'), true);
+    assert.deepEqual(asJson.config.applied, [{ key: 'skip', value: ['install'] }]);
+
+    const gh = run([dir, '--format=github']);
+    assert.ok(
+      gh.stdout.split('\n').some((l) => /^::notice title=packproof::config — /.test(l)),
+      `expected a config notice:\n${gh.stdout}`
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--help documents the config file and its keys', () => {
+  const r = run(['--help']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /\n  --config <path>/);
+  assert.match(r.stdout, /\n  --no-config/);
+  assert.match(r.stdout, /Config file \(packproof\.json, beside your package\.json\)/);
+  for (const key of ['only', 'skip', 'node', 'binArgs', 'strict']) {
+    assert.match(r.stdout, new RegExp(`\\n  ${key} +\\S`), `--help should list the ${key} key`);
+  }
 });
