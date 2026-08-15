@@ -177,7 +177,7 @@ test('an unknown check id lists the real ones', { timeout: TIMEOUT }, async () =
   const r = run(['test/fixtures/good-cjs', '--skip', 'instal']);
   assert.equal(r.code, 2);
   assert.match(r.stderr, /unknown check "instal" in --skip/);
-  assert.match(r.stderr, /shipped-files, diff, install, entries, require, bins, engines, lazy/);
+  assert.match(r.stderr, /shipped-files, diff, install, entries, require, bins, engines, peers, lazy/);
 });
 
 test('--only still fails the run when the check it selected fails', { timeout: TIMEOUT }, async () => {
@@ -210,7 +210,7 @@ test('a full run still reports nothing skipped', { timeout: TIMEOUT }, async () 
 test('--help names every check id', { timeout: TIMEOUT }, async () => {
   const r = run(['--help']);
   assert.equal(r.code, 0);
-  for (const id of ['shipped-files', 'diff', 'install', 'entries', 'require', 'bins', 'engines', 'lazy']) {
+  for (const id of ['shipped-files', 'diff', 'install', 'entries', 'require', 'bins', 'engines', 'peers', 'lazy']) {
     assert.match(r.stdout, new RegExp(`\\n  ${id}\\s`));
   }
 });

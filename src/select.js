@@ -13,7 +13,7 @@
 // pure function with no filesystem and no network, so the honesty is testable.
 
 /** Every check group, in the order a full run performs them. */
-export const CHECK_IDS = ['shipped-files', 'diff', 'install', 'entries', 'require', 'bins', 'engines', 'lazy'];
+export const CHECK_IDS = ['shipped-files', 'diff', 'install', 'entries', 'require', 'bins', 'engines', 'peers', 'lazy'];
 
 /** One line each, for --help and for the site. */
 export const CHECK_HELP = {
@@ -24,11 +24,12 @@ export const CHECK_HELP = {
   require: 'require() every entry point too',
   bins: 'execute every declared bin',
   engines: 'import again under the oldest Node engines.node accepts',
+  peers: 'import again with the declared peerDependencies genuinely absent',
   lazy: 'imports hidden inside functions are declared too (needs --lazy)',
 };
 
 /** Nothing can be imported out of a clean room that was never filled. */
-export const NEEDS_INSTALL = ['entries', 'require', 'bins', 'engines', 'lazy'];
+export const NEEDS_INSTALL = ['entries', 'require', 'bins', 'engines', 'peers', 'lazy'];
 
 /** Groups that only ever run when their flag was passed. */
 const GATED_BY_FLAG = { diff: 'diff', lazy: 'lazy' };

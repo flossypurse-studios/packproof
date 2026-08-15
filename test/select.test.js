@@ -135,7 +135,7 @@ test('a clean run that never installed may not claim the package installs', () =
   const line = verdictLine(selectChecks({ skip: ['install'] }), { failures: 0 });
   assert.doesNotMatch(line, /works when installed/);
   assert.match(line, /never installed the package/);
-  assert.match(line, /Skipped: install, entries, require, bins, engines, lazy/);
+  assert.match(line, /Skipped: install, entries, require, bins, engines, peers, lazy/);
 });
 
 test('a clean run that installed but dropped a probe says it is not a full proof', () => {

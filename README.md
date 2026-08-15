@@ -413,6 +413,52 @@ A minimal workflow step:
 - run: npx packproof --lazy --format=github
 ```
 
+### The peers you made the consumer responsible for
+
+A `peerDependency` is a sentence addressed to whoever installs you: *you bring this, not
+me.* The clean room is the one place that sentence gets quietly rewritten. **npm 7+
+auto-installs required peers**, so packproof's room ends up holding the very thing the
+consumer is supposed to provide — every import passes, and nothing in the report mentions
+the one dependency that isn't packproof's to prove.
+
+The opposite promise is the dangerous one. npm never installs a peer marked
+`peerDependenciesMeta.optional`, so a package that says *"you may skip this"* and then
+imports it at load time hard-crashes for everyone who believed it:
+
+```
+  ✗ import "chartify" [optional-peer-required]
+      "d3" is marked optional in peerDependenciesMeta, but it is imported at load time.
+      npm never installs an optional peer, so everyone who took the manifest at its word
+      gets this crash. Drop the optional flag, or move the import inside the code path
+      that needs it.
+```
+
+When peers *are* declared, packproof builds a second clean room with
+`--legacy-peer-deps` — npm 6 behaviour, where the consumer's half of the bargain is
+genuinely missing — and re-imports every entry point there:
+
+```
+  ✓ peerDependencies — 1 declared, and the consumer installs it: react@^18
+  ✓ import "my-lib" with peers absent — needs "react" at load time. That is a declared
+      peer, so installing it is the consumer's job — npm 7+ does it automatically,
+      pnpm and yarn 1 do not.
+```
+
+That is a **note, not a failure**: a required peer being the consumer's job is exactly
+what the manifest said, and packproof does not punish a package for meaning it. What it
+will not do is stay silent about it.
+
+| what happens with the peers absent | verdict |
+| --- | --- |
+| everything still imports | pass, nothing to say |
+| an entry needs a **required** peer | pass, with a note naming what the consumer must install |
+| an entry needs an **optional** peer | **fail** (`optional-peer-required`) |
+| an entry needs something nobody declared as a peer | pass, with a note — `--legacy-peer-deps` drops your *dependencies'* peers too, and those are not your promise |
+| the peer-free room won't install | pass, saying plainly that nothing was tested |
+
+No `peerDependencies`, no second install: the common case pays one line of report and no
+time at all.
+
 ### Running less of it (`--only`, `--skip`)
 
 A full run installs the real tarball, and the install is the slow part. Some lanes want
@@ -424,7 +470,7 @@ Name the check groups you want:
 packproof --skip install                  # the fast lane: file list only, no install
 packproof --only shipped-files            # same thing, said the other way
 packproof --diff --only shipped-files,diff
-packproof --skip engines,lazy             # everything else, minus two probes
+packproof --skip engines,peers,lazy       # everything else, minus three probes
 ```
 
 Both flags are repeatable and comma-separated, so `--skip a,b` and `--skip a --skip b`
@@ -439,6 +485,7 @@ are the same. The groups are:
 | `require` | `require()` every entry point too |
 | `bins` | execute every declared bin |
 | `engines` | import again under the oldest Node `engines.node` accepts |
+| `peers` | import again with the declared `peerDependencies` genuinely absent |
 | `lazy` | imports hidden inside functions are declared too (needs `--lazy`) |
 
 **A run that skipped something says so.** That is the whole point of the feature having
@@ -457,7 +504,7 @@ packproof@1.4.0 — 17 files packed
   ...
 
 packproof: everything this run looked at is fine — but it never installed the package,
-so it proves nothing about installing it. Skipped: install, entries, require, bins, engines, lazy.
+so it proves nothing about installing it. Skipped: install, entries, require, bins, engines, peers, lazy.
 ```
 
 Contradictions are refused (exit 2) rather than resolved by guessing:
@@ -483,6 +530,8 @@ preference.
   `engines-unsatisfied`: the package does not run on a Node it says it runs on. When no
   such Node exists on the machine, the check passes but says which Node it actually used
   and that the floor is unverified.
+- **the peers you told the consumer to install** — the one thing a clean room lies about; see above. A package with no
+  `peerDependencies` costs one line and no extra work.
 - **shipped files** — the tarball's own path list, read for files that should never
   have been in it: a `.npmrc` (which is where npm keeps registry auth tokens), a
   `.env`, an SSH private key, a key store, `.aws/credentials`. Those fail the run
@@ -505,7 +554,7 @@ preference.
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
 `workspace-sibling-dependency`, `shipped-secret`, `dropped-entry-point`, `dropped-types`,
-`diff-unavailable`, `integrity-mismatch`, `engines-unsatisfied`, and under `--strict` also `shipped-cruft`,
+`diff-unavailable`, `integrity-mismatch`, `engines-unsatisfied`, `optional-peer-required`, and under `--strict` also `shipped-cruft`,
 `dropped-file`, `bin-nonzero-exit`. The
 classification is the useful part — "it broke" is not actionable, "your devDependency
 leaked" is.
@@ -591,6 +640,12 @@ runs `publint && packproof`.
   Node it is running as; a Node somewhere else on your `PATH` is missed rather than
   guessed at. It also only re-imports entry points — bins are executed once, under the
   current Node.
+- **The peers check tests absence, not version ranges.** It proves what happens when a
+  declared peer is *missing*; it never installs a peer at some other version to see
+  whether your `^18` was honest, and it does not notice a package you import without
+  declaring at all (the ordinary entry probes catch that as `undeclared-dependency`).
+  `--legacy-peer-deps` also removes your dependencies' peers, which is why a missing
+  package nobody here declared is reported as a note rather than counted against you.
 - **`--strict` promotes verdicts, it does not find more.** It turns packproof's three
   notes into failures and nothing else: no extra scanning, no new classes of finding, and
   no effect on a run that had nothing to note. If you want packproof to be quieter rather

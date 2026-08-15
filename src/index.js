@@ -3,6 +3,7 @@ import { createCleanRoom, installTarball } from './cleanroom.js';
 import { checkEntries, checkRequire, checkBins } from './checks.js';
 import { checkLazyImports } from './lazy.js';
 import { checkEngines } from './engines.js';
+import { checkPeers } from './peers.js';
 import { checkShippedFiles } from './hygiene.js';
 import { diffAgainstPublished } from './diff.js';
 import { fetchRegistryTarball, manifestFromTarball, DEFAULT_REGISTRY } from './registry.js';
@@ -184,6 +185,15 @@ export async function packproof(target = '.', opts = {}) {
     // Re-import under the oldest Node it claims, or say plainly that this machine
     // has no such Node — a green line that verified nothing would be a lie.
     if (runs('engines')) checks.push(...checkEngines(room, manifest));
+    // A peer is the consumer's half of the bargain, and npm 7+ quietly keeps it
+    // for them here. Only a second, peer-free room can say whether the manifest
+    // told the truth — and only worth building when peers were declared at all.
+    if (runs('peers')) {
+      // Don't diagnose the same missing package twice: whatever already blew up
+      // in the first room will blow up in the peer-free one for the same reason.
+      const already = new Set(checks.filter((c) => !c.pass && c.missing).map((c) => c.missing));
+      checks.push(...checkPeers(tarball, manifest, { keep: opts.keep, ignoreScripts: opts.ignoreScripts, already }));
+    }
     if (opts.lazy && runs('lazy')) {
       // Don't say the same thing twice: if loading already blew up on a package,
       // the deep probe has nothing to add about it.

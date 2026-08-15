@@ -137,3 +137,25 @@ test('--lazy does not report the same package twice when loading already failed 
   assert.deepEqual(kinds(r), ['undeclared-dependency'], 'one problem, reported once');
   assert.match(r.failures[0].name, /^import /);
 });
+
+test('a peerDependency marked optional and imported at load is caught', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-optional-peer'));
+  assert.equal(r.ok, false);
+  // npm never installs an optional peer, so the first clean room already shows
+  // the crash — the point is that packproof names the cause instead of shrugging
+  // at an unresolvable dependency.
+  assert.deepEqual(kinds(r), ['optional-peer-required']);
+  assert.match(r.failures[0].hint, /marked optional in peerDependenciesMeta/);
+  assert.equal(r.failures[0].missing, 'pp-fixture-ghost');
+  // ...and it is named exactly once, not once per clean room.
+  assert.equal(r.checks.filter((c) => !c.pass).length, 1);
+  const summary = r.checks.find((c) => c.name === 'peerDependencies');
+  assert.match(summary.note, /pp-fixture-ghost@\^1\.0\.0 \(optional\)/);
+});
+
+test('a package with no peers gets one line about peers and no second install', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('good-esm'));
+  assert.equal(r.ok, true);
+  const summary = r.checks.find((c) => c.name === 'peerDependencies');
+  assert.match(summary.note, /none declared/);
+});

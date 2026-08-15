@@ -33,7 +33,7 @@ const PATTERNS = [
   /Cannot find package "([^"]+)"/,
 ];
 
-function missingSpecifier(stderr) {
+export function missingSpecifier(stderr) {
   for (const re of PATTERNS) {
     const m = stderr.match(re);
     if (m) return m[1];
@@ -77,6 +77,20 @@ export function classifyLoadFailure(stderr, manifest = {}) {
           hint: dev
             ? `"${root}" is required at runtime but is only in devDependencies, where it works for you and for nobody else. Move it to dependencies.`
             : `"${root}" is required at runtime but is not in dependencies. Add it, or stop importing it.`,
+        };
+      }
+      const peerMeta = (manifest.peerDependenciesMeta || {})[root];
+      if (peerMeta && peerMeta.optional && !(manifest.dependencies || {})[root]) {
+        // Not an install that went wrong: a promise the manifest made and the
+        // code does not keep. npm never installs an optional peer, so this is
+        // precisely what a consumer who believed you gets.
+        return {
+          kind: 'optional-peer-required',
+          missing: root,
+          hint:
+            `"${root}" is marked optional in peerDependenciesMeta, but it is imported at load time. npm never ` +
+            `installs an optional peer, so everyone who took the manifest at its word gets this crash. Drop the ` +
+            `optional flag, or move the import inside the code path that needs it.`,
         };
       }
       return {

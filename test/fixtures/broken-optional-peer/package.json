@@ -1,0 +1,10 @@
+{
+  "name": "pp-fixture-optional-peer",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js"],
+  "private": true,
+  "peerDependencies": { "pp-fixture-ghost": "^1.0.0" },
+  "peerDependenciesMeta": { "pp-fixture-ghost": { "optional": true } }
+}

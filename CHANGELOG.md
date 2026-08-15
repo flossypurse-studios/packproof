@@ -4,6 +4,32 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
+## 0.12.0 — 2026-08-16
+
+**peerDependencies honesty — the one thing a clean room lies about.** A peer is a sentence
+addressed to the consumer: *you bring this, not me.* npm 7+ auto-installs required peers, so
+packproof's clean room quietly ended up holding the very thing the consumer is responsible
+for — every import passed and the report never mentioned it. There is now a **`peers` check
+group** (ninth id for `--only`/`--skip`). When `peerDependencies` is non-empty it installs
+the tarball a second time with `--legacy-peer-deps`, so the peers are genuinely absent, and
+re-imports every entry point there. An entry that needs a **required** peer passes with a
+note naming what the consumer must install (npm 7+ does it for them; pnpm and yarn 1 do
+not) — a peer meaning what it says is not a bug. An entry that needs an **optional** peer
+fails as `optional-peer-required`. A package that declares no peers costs one line of report
+and **no second install**, so a default run is as fast as it was.
+
+**New failure kind: `optional-peer-required`.** npm never installs a peer marked
+`peerDependenciesMeta.optional`, so a package that declares one and then imports it at load
+time crashes for everyone who took the manifest at its word. That case used to be reported
+as a vague `missing-dependency` ("declared as a dependency but could not be resolved"),
+which pointed the author at their install instead of at their own manifest. It is now named
+precisely, in the first clean room, and never reported twice.
+
+**Honesty rules, as usual.** If the peer-free room cannot be installed, packproof says so
+and passes rather than inventing a verdict. `--legacy-peer-deps` also drops your
+*dependencies'* peers, so a missing package nobody declared here is a note, not a mark
+against you. The check never installs a peer at a different version to test your range.
+
 ## 0.11.0 — 2026-08-15
 
 **`--only` and `--skip`.** A run was all-or-nothing, and the all included a real `npm
