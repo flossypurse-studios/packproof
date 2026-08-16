@@ -103,7 +103,7 @@
       <a class="btn ghost" href="#peers">Peers</a>
       <a class="btn ghost" href="#lanes">Run less of it</a>
       <a class="btn ghost" href="#config">Say it once</a>
-      <a class="btn ghost" href="#why">What a check is worth</a>
+      <a class="btn ghost" href="#worth">What a check is worth</a>
       <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
@@ -444,7 +444,7 @@ packproof@1.4.0 <span class="c-muted">— 17 files packed</span>
   <p class="muted">Discovery is <strong>one directory deep</strong>: beside the target's <code>package.json</code> and nowhere else — no parent-directory search, and deliberately <strong>no <code>"packproof"</code> key in <code>package.json</code></strong>, which ships inside the tarball packproof is checking. <code>--config &lt;path&gt;</code> names a file explicitly and a missing one is exit 2, not a shrug; <code>--no-config</code> ignores any. Nothing per-invocation lives there — <code>--registry</code>, <code>--diff &lt;version&gt;</code>, <code>--out</code>, <code>--keep</code>, <code>--workspace</code> are properties of one run, not of the repo. A repo with no config file behaves exactly as it always has, byte for byte.</p>
 </section>
 
-<section id="why">
+<section id="worth">
   <h2>What a check is worth — <span style="color:var(--muted)">and what it isn't</span></h2>
   <p>A green packproof run means something specific. That's only worth having if you can find out <em>what</em> the specific thing is, without reading the source or taking a website's word for it. <code class="inline-code">packproof --why &lt;check-id&gt;</code> prints it, per check group: what a pass establishes, stated as narrowly as it's true — and what it says nothing about.</p>
   <div class="term">
