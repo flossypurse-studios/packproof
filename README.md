@@ -141,6 +141,8 @@ packproof [path-or-tarball] [options]
   --bin-args <args>   args passed to each bin (default: --version)
   --config <path>     read this config file instead of looking for packproof.json
   --no-config         ignore any packproof.json
+  --why [check-id]    what a check proves, and what it does not ("all" for every
+                      one; works with --json). Reads and runs nothing
   -h, --help          show help
   -v, --version       show packproof's version
 ```
@@ -631,6 +633,46 @@ the tarball packproof is checking, so a config key there would be published to e
 of your users, and packproof would be reading its own settings out of the very file it is
 inspecting. One file, one job.
 
+### What a check is worth (`--why`)
+
+A green packproof run means something specific, and the only way that is worth
+anything is if you can find out what the specific thing is. `--why` prints it,
+per check group, straight from the tool:
+
+```sh
+packproof --why            # the nine checks, one line each
+packproof --why engines    # what that check proves — and what it does not
+packproof --why all        # every check, in full
+packproof --why --json     # the same content as data
+```
+
+```
+$ packproof --why peers
+peers — import again with the declared peerDependencies genuinely absent
+
+  Needs the install check: without an install there is nothing to import, so
+  --skip install drops this check too — and the run says it did.
+
+  A passing peers check proves
+    - what happens when a declared peerDependency is genuinely absent: the
+      package is installed again with --legacy-peer-deps and no peer present,
+      and every entry point is imported
+    - ...
+
+  It cannot
+    - test version ranges. It tests absence: it never installs a peer at some
+      other version to see whether your ^18 was honest
+    - ...
+```
+
+Every check has both lists, and the second one is not optional: a test in the suite
+fails if a check id exists without an entry, so a new check group cannot ship
+without someone writing down what it does not prove. It reads nothing, packs
+nothing and touches no network — `--why` works in an empty directory. The wording is
+the same wording as [Honest limitations](#honest-limitations) below, because there is
+only one truth about this and it should not live only in a README nobody has open at
+2am.
+
 ### What gets checked
 
 - **install** — `npm install <tarball>` into a directory containing nothing else.
@@ -792,6 +834,12 @@ runs `publint && packproof`.
   lane that lives somewhere it cannot see: a workflow that types out its own flags is
   still free to disagree with the file, and the only sign of that is the config line
   saying which settings the flags beat. Read it.
+- **`--why` describes the checks, not your package.** It is a fixed piece of
+  documentation compiled into the tool: it does not read your `package.json`, does
+  not know which checks your run selected, and cannot tell you why a particular
+  check failed for you — that is the report's job. What it guarantees is that the
+  limits are written down next to the code that has them, and that a check group
+  without them fails the test suite.
 - **`--registry` trusts the registry's own hash, not a signature.** It proves the bytes
   you downloaded are the bytes the registry has on record for that version; it is not
   provenance or a signature check.

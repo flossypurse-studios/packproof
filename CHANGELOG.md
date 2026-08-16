@@ -4,6 +4,32 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
+## 0.15.0 — 2026-08-16
+
+**`--why <check-id>` — the tool now teaches its own limits.** packproof's value is that a
+green run means something specific, and that is only worth having if you can find out what
+the specific thing is without reading the source or trusting a sentence on a website.
+`--why` prints two lists per check group: what a passing check establishes, stated as
+narrowly as it is true, and what it says nothing about. `--why` alone lists the nine
+checks, `--why all` prints every one, `--why --json` gives the same content as data for a
+docs page or a reviewer's script, and an unknown id is refused by naming the real ids the
+way `--only` already does.
+
+**The second list is not optional.** A test asserts that every id in `CHECK_IDS` has an
+entry with a non-empty `cannot`, so a future check group cannot ship without someone
+writing down what it does not prove. The wording is deliberately the same wording as
+README's "Honest limitations", because there should be one truth about this and it should
+not live only in a README nobody has open at 2am — `packproof --why lazy` says "it is a
+static scan, a specifier your code computes cannot be seen" at the moment you are deciding
+whether to trust it.
+
+**It reads nothing and runs nothing.** No `package.json`, no config file, no pack, no
+network: `--why` works in an empty directory and answers before any of the run machinery
+starts. It describes the checks, not your package — a report is still the only thing that
+can tell you why a check failed for you. `--why` with `--format=github`/`junit` is refused
+rather than answered sideways. Pure `src/why.js` (`WHY`, `whyFor`, `whyText`, `whyIndex`,
+`whyAll`, `whyJson`, `wrap`). A run with no `--why` is byte-identical to 0.14.0.
+
 ## 0.14.0 — 2026-08-15
 
 **`packproof.json` — say your lane once.** packproof has enough flags now

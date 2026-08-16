@@ -3,6 +3,7 @@ import { packproof, packproofWorkspaces } from './index.js';
 import { FORMAT_NAMES, githubAnnotations, githubError, junitXml, junitError } from './format.js';
 import { CHECK_IDS, CHECK_HELP, selectChecks, verdictLine } from './select.js';
 import { CONFIG_FILENAME, CONFIG_KEYS, parseConfig, mergeConfig, configSummary } from './config.js';
+import { whyText, whyIndex, whyAll, whyJson, whyFor } from './why.js';
 
 const CONFIG_LINES = Object.entries(CONFIG_KEYS).map(([k, v]) => `  ${k.padEnd(16)}${v.help}`).join('\n');
 
@@ -81,6 +82,9 @@ Options
   --config <path>     read this config file instead of looking for one
                       (missing file: error, not a shrug)
   --no-config         ignore any packproof.json
+  --why [check-id]    what a check actually proves, and what it does not.
+                      No id lists the checks; "all" prints every one. Works
+                      with --json. Reads nothing and runs nothing.
   -h, --help          show this
   -v, --version       show packproof's version
 
@@ -174,6 +178,11 @@ function parse(argv) {
     }
     else if (a.startsWith('--node=')) (opts.node ||= []).push(a.slice('--node='.length));
     else if (a === '--bin-args') opts.binArgs = String(argv[++i] ?? '').split(' ').filter(Boolean);
+    else if (a === '--why') {
+      const next = argv[i + 1];
+      opts.why = next === undefined || next.startsWith('-') ? true : argv[++i];
+    }
+    else if (a.startsWith('--why=')) opts.why = a.slice('--why='.length) || true;
     else if (a === '-h' || a === '--help') opts.help = true;
     else if (a === '-v' || a === '--version') opts.version = true;
     else if (a.startsWith('-')) { opts.unknown = a; }
@@ -198,6 +207,33 @@ if (opts.version) {
   process.exit(0);
 }
 if (opts.unknown) { console.error(`packproof: unknown option ${opts.unknown}\n`); process.stdout.write(HELP); process.exit(2); }
+
+// --why is documentation, not a run: it reads no package.json, packs nothing and
+// touches no network, so it answers before any of the machinery below starts.
+if (opts.why !== undefined) {
+  const asJson = opts.format === 'json';
+  if (opts.format && !asJson) {
+    console.error(
+      `packproof: --why prints documentation, not a report — --format ${opts.format} has nothing to format. Use --json or drop the flag.`
+    );
+    process.exit(2);
+  }
+  if (opts.why === true) {
+    process.stdout.write(asJson ? JSON.stringify(whyJson(), null, 2) + '\n' : whyIndex());
+    process.exit(0);
+  }
+  if (opts.why === 'all') {
+    process.stdout.write(asJson ? JSON.stringify(whyJson(), null, 2) + '\n' : whyAll());
+    process.exit(0);
+  }
+  const found = whyFor(opts.why);
+  if (!found.ok) {
+    console.error(`packproof: ${found.error}`);
+    process.exit(2);
+  }
+  process.stdout.write(asJson ? JSON.stringify(whyJson([found.id]), null, 2) + '\n' : whyText(found.id).text);
+  process.exit(0);
+}
 
 /**
  * Find and read the config file, if there is one to read.

@@ -8,6 +8,7 @@ import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync, cpSync } 
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { CHECK_IDS } from '../src/select.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -380,5 +381,63 @@ test('--help documents the config file and its keys', () => {
   assert.match(r.stdout, /Config file \(packproof\.json, beside your package\.json\)/);
   for (const key of ['only', 'skip', 'node', 'binArgs', 'strict']) {
     assert.match(r.stdout, new RegExp(`\\n  ${key} +\\S`), `--help should list the ${key} key`);
+  }
+});
+
+test('--why lists every check and exits 0', () => {
+  const r = run(['--why']);
+  assert.equal(r.code, 0);
+  for (const id of CHECK_IDS) assert.ok(r.stdout.includes(id), `--why should list ${id}`);
+  assert.match(r.stdout, /--why <check-id>/);
+});
+
+test('--why <id> prints what that check proves and what it cannot', () => {
+  const r = run(['--why', 'shipped-files']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /^shipped-files — /);
+  assert.match(r.stdout, /A passing shipped-files check proves/);
+  assert.match(r.stdout, /\n  It cannot\n/);
+  assert.equal(run(['--why=shipped-files']).stdout, r.stdout);
+});
+
+test('--why all prints every check in full', () => {
+  const r = run(['--why', 'all']);
+  assert.equal(r.code, 0);
+  for (const id of CHECK_IDS) assert.match(r.stdout, new RegExp(`\\n?${id} — `));
+  assert.equal((r.stdout.match(/It cannot/g) || []).length, CHECK_IDS.length);
+});
+
+test('an unknown --why id is exit 2 naming the real ids', () => {
+  const r = run(['--why', 'installl']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /unknown check "installl" in --why/);
+  for (const id of CHECK_IDS) assert.ok(r.stderr.includes(id), id);
+  assert.equal(r.stdout, '');
+});
+
+test('--why --json is the same content as data', () => {
+  const r = run(['--why', '--json']);
+  assert.equal(r.code, 0);
+  const data = JSON.parse(r.stdout);
+  assert.deepEqual(data.checks.map((c) => c.id), CHECK_IDS);
+  const one = JSON.parse(run(['--why', 'engines', '--json']).stdout);
+  assert.equal(one.checks.length, 1);
+  assert.ok(one.checks[0].cannot.length >= 1);
+});
+
+test('--why with a report format is refused rather than answered sideways', () => {
+  const r = run(['--why', '--format=junit']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--why prints documentation, not a report/);
+});
+
+test('--why needs no package.json, no config file and no network', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'packproof-why-'));
+  try {
+    const r = run(['--why', 'install'], { cwd: dir });
+    assert.equal(r.code, 0);
+    assert.match(r.stdout, /A passing install check proves/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
