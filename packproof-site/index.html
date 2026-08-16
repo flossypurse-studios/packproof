@@ -103,6 +103,7 @@
       <a class="btn ghost" href="#peers">Peers</a>
       <a class="btn ghost" href="#lanes">Run less of it</a>
       <a class="btn ghost" href="#config">Say it once</a>
+      <a class="btn ghost" href="#why">What a check is worth</a>
       <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
@@ -443,6 +444,37 @@ packproof@1.4.0 <span class="c-muted">— 17 files packed</span>
   <p class="muted">Discovery is <strong>one directory deep</strong>: beside the target's <code>package.json</code> and nowhere else — no parent-directory search, and deliberately <strong>no <code>"packproof"</code> key in <code>package.json</code></strong>, which ships inside the tarball packproof is checking. <code>--config &lt;path&gt;</code> names a file explicitly and a missing one is exit 2, not a shrug; <code>--no-config</code> ignores any. Nothing per-invocation lives there — <code>--registry</code>, <code>--diff &lt;version&gt;</code>, <code>--out</code>, <code>--keep</code>, <code>--workspace</code> are properties of one run, not of the repo. A repo with no config file behaves exactly as it always has, byte for byte.</p>
 </section>
 
+<section id="why">
+  <h2>What a check is worth — <span style="color:var(--muted)">and what it isn't</span></h2>
+  <p>A green packproof run means something specific. That's only worth having if you can find out <em>what</em> the specific thing is, without reading the source or taking a website's word for it. <code class="inline-code">packproof --why &lt;check-id&gt;</code> prints it, per check group: what a pass establishes, stated as narrowly as it's true — and what it says nothing about.</p>
+  <div class="term">
+    <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof --why lazy</span>
+lazy <span class="c-muted">— imports hidden inside functions are declared too (needs --lazy)</span>
+
+  <span class="c-muted">Needs the install check: without an install there is nothing to import, so
+  --skip install drops this check too — and the run says it did.</span>
+
+  <span class="c-green">A passing lazy check proves</span>
+    - that import and require specifiers written inside functions and branches
+      — code merely loading the package never reaches — are declared
+      dependencies too
+    - the one thing execution cannot reach: a lazy require of a devDependency
+      on an error path that only fires in production
+
+  <span class="c-yellow">It cannot</span>
+    - execute anything. It is a static scan of the shipped text: comments and
+      template-literal prose are blanked out first, but nothing is run, so a
+      specifier that resolves is only proved *declared*, not proved *working*
+    - see a specifier your code computes. require(name) or import(base + mod)
+      is not a literal and cannot be read
+    - look outside the tarball. It reads only files that actually shipped, so
+      anything excluded from `files` is out of scope</pre>
+  </div>
+  <p style="margin-top:20px"><strong>The second list is not optional.</strong> A test in packproof's own suite fails if a check id exists without one, so a future check group can't ship without someone writing down what it doesn't prove. Bare <code>--why</code> lists the nine checks, <code>--why all</code> prints every one, and <code>--why --json</code> hands you the same content as data for your own docs page. It reads nothing and runs nothing — no <code>package.json</code>, no config file, no pack, no network — so it answers in an empty directory.</p>
+  <p class="muted">It describes the checks, not your package: it can't tell you why a particular check failed for <em>you</em>, which is the report's job. What it guarantees is that the limits live next to the code that has them.</p>
+</section>
+
 <section id="ci">
   <h2>In CI, on <span style="color:var(--muted)">the right line</span></h2>
   <p>A failure that scrolls past in a build log costs the same as no failure at all. <code class="inline-code">--format=github</code> emits GitHub Actions workflow commands instead of prose, so a <code class="inline-code">--lazy</code> finding shows up as a red annotation <strong>on the offending line of the diff</strong>.</p>
@@ -563,6 +595,7 @@ npm i -D packproof</pre>
     <tr><td><code>--bin-args &lt;args&gt;</code></td><td class="desc">args passed to each bin (default <code>--version</code>)</td></tr>
     <tr><td><code>--config &lt;path&gt;</code></td><td class="desc">read this config file instead of looking for a <code>packproof.json</code> beside the target's <code>package.json</code> — a missing one is exit 2, not a shrug</td></tr>
     <tr><td><code>--no-config</code></td><td class="desc">ignore any <code>packproof.json</code></td></tr>
+    <tr><td><code>--why [check-id]</code></td><td class="desc">what a check group proves and what it does not — bare for the list, <code>all</code> for every one, and it works with <code>--json</code>. Reads nothing, runs nothing, needs no <code>package.json</code></td></tr>
   </table>
 
   <h3>Programmatic use</h3>
@@ -586,7 +619,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. The <strong>peers</strong> check tests absence, not version ranges: it proves what happens when a declared peer is missing, never installs a peer at some other version to see whether your <code>^18</code> was honest, and since <code>--legacy-peer-deps</code> also removes your dependencies' peers, a missing package nobody here declared is reported as a note rather than counted against you. The <code>engines.node</code> check can only use Nodes that are <strong>installed</strong>: packproof won't download one and won't pretend, so if the oldest Node your range accepts isn't on the machine, the check passes with a note naming the Node it actually used and saying the floor is unverified — and it re-imports entry points only, not bins. <code>--node</code> names an interpreter but doesn't install one either: <code>--node 18</code> still needs a Node 18 to exist somewhere packproof looks, and it refuses the run rather than quietly falling back. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check. A <code>packproof.json</code> is read, never written, and never inherited — packproof won't create one, merge two, or look in a parent directory — but it can't see the copy of your lane that lives somewhere else: a workflow that types out its own flags is still free to disagree with the file, and the only sign of that is the config line saying which settings the flags beat, so read it. And <code>--only</code>/<code>--skip</code> make a run <strong>weaker</strong> — that's the point, since the alternative is usually no run at all — but the exit code of <code>packproof --skip install</code> means "nothing I looked at is wrong", not "this package installs". packproof never prints the second claim after a run that didn't earn it; if your CI reads the exit code and nothing else, keep one full run somewhere before you publish.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. The <strong>peers</strong> check tests absence, not version ranges: it proves what happens when a declared peer is missing, never installs a peer at some other version to see whether your <code>^18</code> was honest, and since <code>--legacy-peer-deps</code> also removes your dependencies' peers, a missing package nobody here declared is reported as a note rather than counted against you. The <code>engines.node</code> check can only use Nodes that are <strong>installed</strong>: packproof won't download one and won't pretend, so if the oldest Node your range accepts isn't on the machine, the check passes with a note naming the Node it actually used and saying the floor is unverified — and it re-imports entry points only, not bins. <code>--node</code> names an interpreter but doesn't install one either: <code>--node 18</code> still needs a Node 18 to exist somewhere packproof looks, and it refuses the run rather than quietly falling back. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check. A <code>packproof.json</code> is read, never written, and never inherited — packproof won't create one, merge two, or look in a parent directory — but it can't see the copy of your lane that lives somewhere else: a workflow that types out its own flags is still free to disagree with the file, and the only sign of that is the config line saying which settings the flags beat, so read it. And <code>--only</code>/<code>--skip</code> make a run <strong>weaker</strong> — that's the point, since the alternative is usually no run at all — but the exit code of <code>packproof --skip install</code> means "nothing I looked at is wrong", not "this package installs". packproof never prints the second claim after a run that didn't earn it; if your CI reads the exit code and nothing else, keep one full run somewhere before you publish. All of this is also in the tool: <code>packproof --why &lt;check-id&gt;</code> prints the limits of a single check at the moment you’re deciding whether to trust it.</p>
 </section>
 
 </div>
