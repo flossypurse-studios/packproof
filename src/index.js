@@ -4,6 +4,7 @@ import { checkEntries, checkRequire, checkBins } from './checks.js';
 import { checkLazyImports } from './lazy.js';
 import { checkEngines, resolveNodes } from './engines.js';
 import { checkPeers } from './peers.js';
+import { checkHoisting } from './hoisting.js';
 import { checkShippedFiles } from './hygiene.js';
 import { diffAgainstPublished } from './diff.js';
 import { fetchRegistryTarball, manifestFromTarball, DEFAULT_REGISTRY } from './registry.js';
@@ -200,6 +201,13 @@ export async function packproof(target = '.', opts = {}) {
       // in the first room will blow up in the peer-free one for the same reason.
       const already = new Set(checks.filter((c) => !c.pass && c.missing).map((c) => c.missing));
       checks.push(...checkPeers(tarball, manifest, { keep: opts.keep, ignoreScripts: opts.ignoreScripts, already }));
+    }
+    // npm hoists your dependencies' dependencies into the same node_modules,
+    // so a package this manifest never declared can still resolve by name here.
+    // pnpm and Yarn PnP do not. Only a non-hoisted room can tell those apart.
+    if (runs('hoisting')) {
+      const already = new Set(checks.filter((c) => !c.pass && c.missing).map((c) => c.missing));
+      checks.push(...checkHoisting(tarball, manifest, { keep: opts.keep, ignoreScripts: opts.ignoreScripts, already }));
     }
     if (opts.lazy && runs('lazy')) {
       // Don't say the same thing twice: if loading already blew up on a package,

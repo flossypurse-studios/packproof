@@ -118,6 +118,19 @@ export const WHY = {
       'distinguish your missing peers from your dependencies\' ones with certainty: --legacy-peer-deps removes both, which is why a missing package nobody here declared is reported as a note rather than counted against you',
     ],
   },
+  hoisting: {
+    proves: [
+      "that every entry point still imports when your dependencies' dependencies are not flattened into the same node_modules: the package is installed again with --install-strategy=nested and imported there",
+      'that nothing you import at load time resolves only by accident of npm\'s hoisting — a package no manifest of yours declares, reachable purely because a dependency dragged it in, fails here as phantom-dependency',
+      'the class of bug whose report reads "works with npm, broken with pnpm", before a pnpm user files it',
+    ],
+    cannot: [
+      'run pnpm or Yarn. It reproduces their layout with npm\'s own --install-strategy=nested, which is the same resolution shape but not the same program; a bug specific to pnpm\'s symlinks or to Yarn PnP\'s resolver is out of scope',
+      'run at all on npm 8 or older, which has no --install-strategy. It says so on the check line and claims nothing',
+      'see past load time. A phantom dependency imported inside a function nothing here calls is invisible to it — that is what --lazy reads the source for',
+      'blame you for a package you do declare. If the nested layout cannot resolve a real dependency, that is reported as a note, not a verdict',
+    ],
+  },
   lazy: {
     proves: [
       'that import and require specifiers written inside functions and branches — code merely loading the package never reaches — are declared dependencies too',

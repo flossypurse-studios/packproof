@@ -1,0 +1,9 @@
+{
+  "name": "pp-fixture-phantom-dep",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js"],
+  "private": true,
+  "dependencies": { "supports-color": "^8.1.1" }
+}

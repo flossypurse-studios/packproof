@@ -4,6 +4,37 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
+## 0.16.0 — 2026-08-27
+
+**The `hoisting` check — the dependency you never declared, and npm hands you anyway.**
+npm's default install flattens your dependencies *and everything they dragged in* into one
+top-level `node_modules`, so `import 'has-flag'` resolves in a clean room even when no
+manifest of yours mentions has-flag — it is there because `supports-color` brought it.
+Node's resolver cannot tell that apart from a real dependency, npm does not warn, and every
+packproof check up to this one passed, because packproof's clean room was a hoisted install
+too. Then a pnpm user installs you and your package throws `ERR_MODULE_NOT_FOUND` on its
+first line.
+
+So packproof now installs the tarball a second time with `--install-strategy=nested`,
+where nothing transitive is reachable by name, and imports every entry point again. An
+import that only ever worked by accident fails as `phantom-dependency`, naming the package
+and saying to add it. This is the "works with npm, broken with pnpm" bug report, found
+before it is filed.
+
+**It refuses to guess, like the rest of the tool.** A package you *do* declare —
+dependency, peer, optional or bundled — failing in the nested room is a note, not a
+verdict: a nested layout is unusual and that is npm's business, not your manifest's. A
+failure that cannot be attributed to a missing package is a note with the stderr attached.
+A room that will not install is a passing line that says plainly nothing was tested. npm 8
+and older have no `--install-strategy` at all, so there the check names the npm it found
+and claims nothing rather than passing quietly. And a package already blamed in the hoisted
+room is never blamed twice.
+
+**A zero-dependency package pays one line and no second install**, the same bargain the
+peers check makes. `hoisting` is a first-class check id: `--only hoisting`,
+`--skip hoisting`, `--why hoisting`, listed in `--help`, counted in `skippedChecks`, and
+in the verdict line when it did not run.
+
 ## 0.15.0 — 2026-08-16
 
 **`--why <check-id>` — the tool now teaches its own limits.** packproof's value is that a

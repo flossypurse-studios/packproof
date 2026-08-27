@@ -25,13 +25,18 @@ export function createCleanRoom() {
 }
 
 /** Install the tarball into the clean room the way a consumer would. */
-export function installTarball(room, tarball, { ignoreScripts = false, legacyPeerDeps = false, timeout = 300000 } = {}) {
+export function installTarball(room, tarball, { ignoreScripts = false, legacyPeerDeps = false, installStrategy = null, timeout = 300000 } = {}) {
   const args = ['install', '--no-audit', '--no-fund', '--loglevel', 'error'];
   if (ignoreScripts) args.push('--ignore-scripts');
   // npm 7+ installs required peers for you. That is the opposite of what a peer
   // means, so the peers check asks for npm 6 behaviour and gets a room where the
   // consumer's half of the bargain is genuinely missing.
   if (legacyPeerDeps) args.push('--legacy-peer-deps');
+  // npm's default layout flattens your dependencies' dependencies into one
+  // top-level node_modules, which makes a package you never declared resolvable
+  // by name. The hoisting check asks for the layout pnpm and Yarn PnP give a
+  // user instead, where only what you declared is reachable.
+  if (installStrategy) args.push(`--install-strategy=${installStrategy}`);
   args.push(tarball);
   const r = spawnSync('npm', args, { cwd: room.dir, encoding: 'utf8', timeout });
   return {

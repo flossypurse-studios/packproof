@@ -159,3 +159,33 @@ test('a package with no peers gets one line about peers and no second install', 
   const summary = r.checks.find((c) => c.name === 'peerDependencies');
   assert.match(summary.note, /none declared/);
 });
+
+test('a dependency\'s dependency imported by name is caught as phantom-dependency', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-phantom-dep'));
+  assert.equal(r.ok, false);
+  // Every other check is green: npm packs it, npm installs it, and the import
+  // succeeds in a hoisted clean room. Only the non-hoisted room disagrees.
+  assert.deepEqual(kinds(r), ['phantom-dependency']);
+  assert.equal(r.failures[0].missing, 'has-flag');
+  assert.match(r.failures[0].hint, /npm flattens/);
+  assert.equal(r.checks.find((c) => c.name === 'npm install <tarball>').pass, true);
+  assert.equal(r.checks.find((c) => c.name === 'import "pp-fixture-phantom-dep"').pass, true);
+  // ...and it is named exactly once, not once per clean room.
+  assert.equal(r.checks.filter((c) => !c.pass).length, 1);
+});
+
+test('--skip hoisting turns the phantom green again, and the run says it did', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('broken-phantom-dep'), { skip: ['hoisting'] });
+  assert.equal(r.ok, true);
+  assert.equal(r.fullRun, false);
+  assert.deepEqual(r.skippedChecks, [{ id: 'hoisting', reason: 'skipped with --skip' }]);
+  assert.equal(r.checks.some((c) => c.name === 'dependency hoisting'), false);
+});
+
+test('a package with no dependencies gets one line about hoisting and no second install', { timeout: TIMEOUT }, async () => {
+  const r = await packproof(fixture('good-esm'));
+  assert.equal(r.ok, true);
+  const summary = r.checks.find((c) => c.name === 'dependency hoisting');
+  assert.match(summary.note, /no runtime dependencies/);
+  assert.equal(r.checks.some((c) => c.name.includes('without hoisting')), false);
+});

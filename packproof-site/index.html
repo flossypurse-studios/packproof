@@ -103,6 +103,7 @@
       <a class="btn ghost" href="#diff">What stopped shipping</a>
       <a class="btn ghost" href="#engines">The Node you promised</a>
       <a class="btn ghost" href="#peers">Peers</a>
+      <a class="btn ghost" href="#hoisting">Hoisting</a>
       <a class="btn ghost" href="#lanes">Run less of it</a>
       <a class="btn ghost" href="#config">Say it once</a>
       <a class="btn ghost" href="#worth">What a check is worth</a>
@@ -371,6 +372,36 @@ steps:
   <p class="muted" style="margin-top:16px">No <code>peerDependencies</code>, no second install: the common case pays one line of report and no time at all.</p>
 </section>
 
+<section id="hoisting">
+  <h2>The dependency you never declared — <span style="color:var(--muted)">"works with npm, broken with pnpm"</span></h2>
+  <p>npm's default install is <em>hoisted</em>: your dependencies, and everything <strong>your dependencies dragged in</strong>, get flattened into one top-level <code>node_modules</code>. So this imports perfectly:</p>
+  <pre class="block"><span class="c-cmd">import</span> supportsColor <span class="c-cmd">from</span> <span class="c-green">'supports-color'</span>;   <span class="c-comment">// in your dependencies</span>
+<span class="c-cmd">import</span> hasFlag <span class="c-cmd">from</span> <span class="c-green">'has-flag'</span>;               <span class="c-comment">// ...not in your dependencies</span></pre>
+  <p><code>has-flag</code> is reachable by name only because <code>supports-color</code> depends on it and npm put it at the top level. Node's resolver can't tell that apart from a real dependency, npm doesn't warn, and <strong>every other packproof check passes</strong> — the clean room is a hoisted install too. The bug ships.</p>
+  <p>Then somebody installs you with <strong>pnpm</strong>, or <strong>Yarn PnP</strong>, or npm's own <code>--install-strategy=nested</code>. None of them hoist. Your package throws <code>ERR_MODULE_NOT_FOUND</code> on its first line and you get an issue titled <em>"works with npm, broken with pnpm"</em> — which is true, and isn't a pnpm bug.</p>
+  <p>So packproof installs the tarball a second time with <code>--install-strategy=nested</code>, where only what you actually declared is reachable by name, and imports every entry point again:</p>
+  <pre class="block"><span class="c-green">✓ dependency hoisting</span> <span class="c-muted">— 1 runtime dependency, whose own dependencies npm
+      flattens into the same node_modules — so this run imports again with
+      that flattening turned off</span>
+<span class="c-red">✗ import "my-lib" without hoisting</span> <span class="c-yellow">[phantom-dependency]</span>
+      "has-flag" is imported at load time and is not in this package's
+      dependencies. It resolved a moment ago only because npm flattens your
+      dependencies' dependencies into one node_modules and "has-flag" happened
+      to land there. pnpm, Yarn PnP and npm --install-strategy=nested do not do
+      that, so for those users this import throws. Add "has-flag" to
+      dependencies — depending on it by accident is depending on it.</pre>
+  <table>
+    <tr><th>Without hoisting</th><th>Verdict</th></tr>
+    <tr><td>everything still imports</td><td class="desc">pass, nothing to say</td></tr>
+    <tr><td>an entry needs a package <strong>no manifest of yours declares</strong></td><td class="desc"><strong>fail</strong> — <code>phantom-dependency</code></td></tr>
+    <tr><td>an entry needs a package you <strong>do</strong> declare (dependency, peer, optional, bundled)</td><td class="desc">pass, with a note — a nested layout is unusual, and that's npm's business, not your manifest's</td></tr>
+    <tr><td>the failure can't be attributed to a missing package</td><td class="desc">pass, with a note and the stderr</td></tr>
+    <tr><td>the non-hoisted room won't install</td><td class="desc">pass, saying plainly that nothing was tested</td></tr>
+    <tr><td>npm older than 9 — no <code>--install-strategy</code></td><td class="desc">pass, naming the npm it found and claiming nothing</td></tr>
+  </table>
+  <p class="muted" style="margin-top:16px">No <code>dependencies</code>, no hoisting surface, no second install: a zero-dependency package pays one line of report and no time at all.</p>
+</section>
+
 <section id="lanes">
   <h2>Run less of it — <span style="color:var(--muted)">and be told you did</span></h2>
   <p>The slow part of packproof is the honest part: a real <code class="inline-code">npm install</code> of the real tarball into an empty directory. Some lanes don't want it. A pre-commit hook asking <em>"did I just stage a credential"</em> needs no install at all. A release job asking <em>"did a file quietly stop shipping"</em> needs one HTTP request. Name the checks you want:</p>
@@ -388,6 +419,7 @@ packproof --skip engines,peers,lazy       <span class="c-comment"># everything e
     <tr><td><code>bins</code></td><td class="desc">execute every declared bin</td></tr>
     <tr><td><code>engines</code></td><td class="desc">import again under the oldest Node <code>engines.node</code> accepts, or the ones <code>--node</code> names</td></tr>
     <tr><td><code>peers</code></td><td class="desc">import again with the declared <code>peerDependencies</code> genuinely absent</td></tr>
+    <tr><td><code>hoisting</code></td><td class="desc">import again with your dependencies' dependencies not hoisted, the way pnpm resolves</td></tr>
     <tr><td><code>lazy</code></td><td class="desc">imports hidden inside functions are declared too (needs <code>--lazy</code>)</td></tr>
   </table>
   <p style="margin-top:20px">The reason this feature is worth a section: <strong>a run that skipped checks says so.</strong> A green packproof that quietly looked at three of eight things is precisely the lie the tool exists to prevent — so the verdict line will not make a claim the run didn't earn.</p>
@@ -545,6 +577,10 @@ npm i -D packproof</pre>
       <p>If <code>engines.node</code> is declared, every entry point is imported again under the oldest Node installed here that the range accepts — and when there's no such Node, it says so instead of passing quietly, or you name one with <code>--node</code>.</p>
     </div>
     <div class="card">
+      <h3>hoisting</h3>
+      <p>npm flattens your dependencies' dependencies into the same node_modules, so a package you never declared resolves by name. pnpm and Yarn PnP don't. A second, non-hoisted room tells them apart.</p>
+    </div>
+    <div class="card">
       <h3>peers</h3>
       <p>npm 7+ installs your required peers into the clean room for you, which is the one thing the room gets wrong. When peers are declared, packproof builds a second room without them and re-imports.</p>
     </div>
@@ -569,6 +605,7 @@ npm i -D packproof</pre>
     <tr><td><code>bin-nonzero-exit</code></td><td class="desc"><code>--strict</code> only: a bin that loads and runs but exits nonzero, a note by default</td></tr>
     <tr><td><code>engines-unsatisfied</code></td><td class="desc">the package doesn't load on a Node version its own <code>engines.node</code> says it supports</td></tr>
     <tr><td><code>optional-peer-required</code></td><td class="desc">a peer marked <code>optional</code> that the package can't be imported without</td></tr>
+    <tr><td><code>phantom-dependency</code></td><td class="desc">imported at load time and declared nowhere — reachable only because npm hoisted a dependency's dependency</td></tr>
     <tr><td><code>integrity-mismatch</code></td><td class="desc"><code>--registry</code> only: the downloaded tarball isn't the bytes the registry has on record</td></tr>
   </table>
 </section>
@@ -592,7 +629,7 @@ npm i -D packproof</pre>
     <tr><td><code>--lazy</code></td><td class="desc">also read back every shipped <code>.js</code>/<code>.mjs</code>/<code>.cjs</code> file and check the imports that never execute</td></tr>
     <tr><td><code>--strict</code></td><td class="desc">fail on everything packproof would otherwise only note — accidental files in the tarball, a file that stopped shipping without being a declared entry point, and a bin that runs but exits nonzero. Same findings, stricter verdict.</td></tr>
     <tr><td><code>--node &lt;ver|path&gt;</code></td><td class="desc">run the <code>engines</code> check under this Node instead of the oldest installed one the range happens to accept — a version like <code>18</code> or <code>18.20.4</code>, or a path to a node binary. Repeatable. A Node your <code>engines.node</code> excludes still runs, and the report says so both ways round rather than counting it against the package</td></tr>
-    <tr><td><code>--only &lt;checks&gt;</code></td><td class="desc">run only these check groups — repeatable and comma-separated. Ids: <code>shipped-files</code>, <code>diff</code>, <code>install</code>, <code>entries</code>, <code>require</code>, <code>bins</code>, <code>engines</code>, <code>peers</code>, <code>lazy</code></td></tr>
+    <tr><td><code>--only &lt;checks&gt;</code></td><td class="desc">run only these check groups — repeatable and comma-separated. Ids: <code>shipped-files</code>, <code>diff</code>, <code>install</code>, <code>entries</code>, <code>require</code>, <code>bins</code>, <code>engines</code>, <code>peers</code>, <code>hoisting</code>, <code>lazy</code></td></tr>
     <tr><td><code>--skip &lt;checks&gt;</code></td><td class="desc">run everything except these. Skipping <code>install</code> drops every probe that needs one — and the run then says, in every format, that it never installed the package</td></tr>
     <tr><td><code>--bin-args &lt;args&gt;</code></td><td class="desc">args passed to each bin (default <code>--version</code>)</td></tr>
     <tr><td><code>--config &lt;path&gt;</code></td><td class="desc">read this config file instead of looking for a <code>packproof.json</code> beside the target's <code>package.json</code> — a missing one is exit 2, not a shrug</td></tr>
@@ -621,7 +658,7 @@ npm i -D packproof</pre>
 
 <section id="limits">
   <h2>Honest limitations</h2>
-  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. The <strong>peers</strong> check tests absence, not version ranges: it proves what happens when a declared peer is missing, never installs a peer at some other version to see whether your <code>^18</code> was honest, and since <code>--legacy-peer-deps</code> also removes your dependencies' peers, a missing package nobody here declared is reported as a note rather than counted against you. The <code>engines.node</code> check can only use Nodes that are <strong>installed</strong>: packproof won't download one and won't pretend, so if the oldest Node your range accepts isn't on the machine, the check passes with a note naming the Node it actually used and saying the floor is unverified — and it re-imports entry points only, not bins. <code>--node</code> names an interpreter but doesn't install one either: <code>--node 18</code> still needs a Node 18 to exist somewhere packproof looks, and it refuses the run rather than quietly falling back. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check. A <code>packproof.json</code> is read, never written, and never inherited — packproof won't create one, merge two, or look in a parent directory — but it can't see the copy of your lane that lives somewhere else: a workflow that types out its own flags is still free to disagree with the file, and the only sign of that is the config line saying which settings the flags beat, so read it. And <code>--only</code>/<code>--skip</code> make a run <strong>weaker</strong> — that's the point, since the alternative is usually no run at all — but the exit code of <code>packproof --skip install</code> means "nothing I looked at is wrong", not "this package installs". packproof never prints the second claim after a run that didn't earn it; if your CI reads the exit code and nothing else, keep one full run somewhere before you publish. All of this is also in the tool: <code>packproof --why &lt;check-id&gt;</code> prints the limits of a single check at the moment you’re deciding whether to trust it.</p>
+  <p class="muted">Loading a module runs its top level, so a devDependency imported <strong>lazily</strong> inside a function packproof never calls is never run — pass <code>--lazy</code> and it's found by reading the shipped source instead. That scan is static: comments and template-literal prose are blanked first, but a specifier your code computes at runtime isn't a literal and can't be seen, and only files that actually shipped are ever read. ESM stops at the first unresolved import, so one module with two missing things reports one, then the other after you fix it. Bins run with <code>--version</code> by default; if yours doesn't support it a nonzero exit is a note, not a failure — <code>--strict</code> promotes that note, and packproof's two other notes, to failures without looking for anything extra. It performs a real <code>npm install</code>, so: the network, and a few seconds. In a workspace, a package that depends on an <strong>unpublished sibling</strong> can't be fully proved — packproof reports <code>workspace-sibling-dependency</code> rather than faking it, and workspace discovery is glob matching (<code>*</code>, <code>**</code>, <code>?</code>, <code>!</code> negations), not a package manager, so anything more exotic is missed rather than guessed at. <code>--diff</code> compares paths against one named version, not contents and not your whole publish history, and it needs the network — when it can't reach the registry it fails loudly rather than passing quietly. The <strong>peers</strong> check tests absence, not version ranges: it proves what happens when a declared peer is missing, never installs a peer at some other version to see whether your <code>^18</code> was honest, and since <code>--legacy-peer-deps</code> also removes your dependencies' peers, a missing package nobody here declared is reported as a note rather than counted against you. The <strong>hoisting</strong> check reproduces pnpm's layout with npm's own <code>--install-strategy=nested</code> — the same resolution shape, but not the same program, so a bug specific to pnpm's symlink farm or Yarn PnP's resolver is out of scope; it needs npm 9 or newer and on npm 8 it says so rather than passing quietly, and like every execution check it only sees load time. The <code>engines.node</code> check can only use Nodes that are <strong>installed</strong>: packproof won't download one and won't pretend, so if the oldest Node your range accepts isn't on the machine, the check passes with a note naming the Node it actually used and saying the floor is unverified — and it re-imports entry points only, not bins. <code>--node</code> names an interpreter but doesn't install one either: <code>--node 18</code> still needs a Node 18 to exist somewhere packproof looks, and it refuses the run rather than quietly falling back. <code>--registry</code> trusts the registry’s own hash: it proves the bytes you downloaded are the bytes on record for that version, which is not provenance and not a signature check. A <code>packproof.json</code> is read, never written, and never inherited — packproof won't create one, merge two, or look in a parent directory — but it can't see the copy of your lane that lives somewhere else: a workflow that types out its own flags is still free to disagree with the file, and the only sign of that is the config line saying which settings the flags beat, so read it. And <code>--only</code>/<code>--skip</code> make a run <strong>weaker</strong> — that's the point, since the alternative is usually no run at all — but the exit code of <code>packproof --skip install</code> means "nothing I looked at is wrong", not "this package installs". packproof never prints the second claim after a run that didn't earn it; if your CI reads the exit code and nothing else, keep one full run somewhere before you publish. All of this is also in the tool: <code>packproof --why &lt;check-id&gt;</code> prints the limits of a single check at the moment you’re deciding whether to trust it.</p>
 </section>
 
 </div>

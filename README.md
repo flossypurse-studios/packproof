@@ -506,6 +506,59 @@ will not do is stay silent about it.
 No `peerDependencies`, no second install: the common case pays one line of report and no
 time at all.
 
+### The dependency you never declared (`hoisting`)
+
+npm's default install is *hoisted*: your dependencies, and everything **your dependencies
+dragged in**, get flattened into one top-level `node_modules`. So this imports fine:
+
+```js
+import supportsColor from 'supports-color';   // in your dependencies
+import hasFlag from 'has-flag';               // ...not in your dependencies
+```
+
+`has-flag` is reachable by name only because `supports-color` depends on it and npm put it
+at the top level. Node's resolver cannot tell that apart from a real dependency, npm does
+not warn, and *every other packproof check passes* — the clean room is a hoisted install
+too. The bug ships.
+
+Then someone installs you with **pnpm**, or **Yarn PnP**, or npm's own
+`--install-strategy=nested`, none of which hoist. Your package throws
+`ERR_MODULE_NOT_FOUND` on its first line, and you get an issue titled *"works with npm,
+broken with pnpm"* — which is true, and is not a pnpm bug.
+
+So packproof installs the tarball a second time with `--install-strategy=nested`, where
+only what you actually declared is reachable by name, and imports every entry point again:
+
+```
+pp-fixture-phantom-dep@1.0.0 — 3 files packed
+  ✓ npm install <tarball>
+  ✓ import "pp-fixture-phantom-dep"
+  ✓ dependency hoisting — 1 runtime dependency, whose own dependencies npm flattens into
+      the same node_modules — so this run imports again with that flattening turned off
+  ✗ import "pp-fixture-phantom-dep" without hoisting [phantom-dependency]
+      "has-flag" is imported at load time and is not in this package's dependencies. It
+      resolved a moment ago only because npm flattens your dependencies' dependencies
+      into one node_modules and "has-flag" happened to land there. pnpm, Yarn PnP and
+      npm --install-strategy=nested do not do that, so for those users this import
+      throws. Add "has-flag" to dependencies — depending on it by accident is
+      depending on it.
+```
+
+The line between failing and merely noting is the same one the rest of the tool draws — a
+fact, never a guess:
+
+| what happens without hoisting | verdict |
+| --- | --- |
+| everything still imports | pass |
+| an entry needs a package **no manifest of yours declares** | **fail** (`phantom-dependency`) |
+| an entry needs a package you **do** declare (dependency, peer, optional, bundled) | pass, with a note — a nested layout is unusual, and that is npm's business, not your manifest's |
+| the failure cannot be attributed to a missing package | pass, with a note and the stderr |
+| the non-hoisted room won't install | pass, saying plainly that nothing was tested |
+| npm is older than 9 (no `--install-strategy`) | pass, naming the npm it found and claiming nothing |
+
+No `dependencies`, no hoisting surface, no second install: a zero-dependency package pays
+one line of report and no time at all.
+
 ### Running less of it (`--only`, `--skip`)
 
 A full run installs the real tarball, and the install is the slow part. Some lanes want
@@ -533,6 +586,7 @@ are the same. The groups are:
 | `bins` | execute every declared bin |
 | `engines` | import again under the oldest Node `engines.node` accepts, or the ones `--node` names |
 | `peers` | import again with the declared `peerDependencies` genuinely absent |
+| `hoisting` | import again with your dependencies' dependencies not hoisted, the way pnpm resolves |
 | `lazy` | imports hidden inside functions are declared too (needs `--lazy`) |
 
 **A run that skipped something says so.** That is the whole point of the feature having
@@ -551,7 +605,8 @@ packproof@1.4.0 — 17 files packed
   ...
 
 packproof: everything this run looked at is fine — but it never installed the package,
-so it proves nothing about installing it. Skipped: install, entries, require, bins, engines, peers, lazy.
+so it proves nothing about installing it. Skipped: install, entries, require, bins, engines, peers,
+hoisting, lazy.
 ```
 
 Contradictions are refused (exit 2) rather than resolved by guessing:
@@ -690,6 +745,12 @@ only one truth about this and it should not live only in a README nobody has ope
   and that the floor is unverified — or you name one with `--node`.
 - **the peers you told the consumer to install** — the one thing a clean room lies about; see above. A package with no
   `peerDependencies` costs one line and no extra work.
+- **the dependencies you did not declare** — the tarball is installed a second time with
+  `--install-strategy=nested`, where npm's hoisting is off and only what you declared is
+  reachable by name, and every entry point is imported again. An import that resolved only
+  because a dependency dragged the package in fails as `phantom-dependency` — the "works
+  with npm, broken with pnpm" bug, before a pnpm user files it. A package with no
+  `dependencies` costs one line and no extra work.
 - **shipped files** — the tarball's own path list, read for files that should never
   have been in it: a `.npmrc` (which is where npm keeps registry auth tokens), a
   `.env`, an SSH private key, a key store, `.aws/credentials`. Those fail the run
@@ -712,7 +773,8 @@ only one truth about this and it should not live only in a README nobody has ope
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
 `workspace-sibling-dependency`, `shipped-secret`, `dropped-entry-point`, `dropped-types`,
-`diff-unavailable`, `integrity-mismatch`, `engines-unsatisfied`, `optional-peer-required`, and under `--strict` also `shipped-cruft`,
+`diff-unavailable`, `integrity-mismatch`, `engines-unsatisfied`, `optional-peer-required`,
+`phantom-dependency`, and under `--strict` also `shipped-cruft`,
 `dropped-file`, `bin-nonzero-exit`. The
 classification is the useful part — "it broke" is not actionable, "your devDependency
 leaked" is.
@@ -811,6 +873,13 @@ runs `publint && packproof`.
   declaring at all (the ordinary entry probes catch that as `undeclared-dependency`).
   `--legacy-peer-deps` also removes your dependencies' peers, which is why a missing
   package nobody here declared is reported as a note rather than counted against you.
+- **The hoisting check reproduces pnpm's layout; it does not run pnpm.** npm's
+  `--install-strategy=nested` gives the same resolution shape — nothing transitive
+  reachable by name — but it is not the same program, so a bug specific to pnpm's symlink
+  farm or to Yarn PnP's resolver is out of scope. It needs npm 9 or newer to run at all,
+  and on npm 8 it says so on the check line rather than passing quietly. And like every
+  execution check it only sees load time: a phantom dependency imported inside a function
+  nothing calls is `--lazy`'s job, not this one's.
 - **`--strict` promotes verdicts, it does not find more.** It turns packproof's three
   notes into failures and nothing else: no extra scanning, no new classes of finding, and
   no effect on a run that had nothing to note. If you want packproof to be quieter rather

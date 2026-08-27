@@ -178,7 +178,7 @@ test('an unknown check id lists the real ones', { timeout: TIMEOUT }, async () =
   const r = run(['test/fixtures/good-cjs', '--skip', 'instal']);
   assert.equal(r.code, 2);
   assert.match(r.stderr, /unknown check "instal" in --skip/);
-  assert.match(r.stderr, /shipped-files, diff, install, entries, require, bins, engines, peers, lazy/);
+  assert.match(r.stderr, /shipped-files, diff, install, entries, require, bins, engines, peers, hoisting, lazy/);
 });
 
 test('--only still fails the run when the check it selected fails', { timeout: TIMEOUT }, async () => {
