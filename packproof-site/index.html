@@ -185,7 +185,7 @@ code, .mono-num { font-family: var(--font-mono); font-variant-numeric: tabular-n
 
 /* ---------- hero ---------- */
 
-.hero { padding: 3.25rem 0 var(--section-y); border-top: 0; }
+.hero { padding: 3.25rem 0 2.25rem; border-top: 0; }
 .hero .lead, .tagline {
   font-size: var(--lead); color: var(--fg-dim);
   margin: 1.5rem 0 0; max-width: var(--measure);
@@ -211,6 +211,34 @@ code, .mono-num { font-family: var(--font-mono); font-variant-numeric: tabular-n
 }
 .btn.primary:hover, .btn-primary:hover { background: var(--fg); border-color: var(--fg); color: #fff; }
 .btn.ghost { background: transparent; }
+
+/* ---------- jump row ----------
+   Two of these sites open with a dozen links to their own sections. As buttons
+   they read as a wall of equal-weight calls to action, which is a lie — there is
+   one call to action and the rest is a table of contents. Set them as mono chips
+   so the eye sorts them in one pass instead of reading thirteen decisions. */
+.jump {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  margin-top: 1.5rem; max-width: 46rem;
+}
+.jump a {
+  font-family: var(--font-mono);
+  font-size: var(--micro);
+  color: var(--fg-dim);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.32rem 0.6rem;
+  background: var(--surface);
+  white-space: nowrap;
+}
+.jump a:hover { border-color: var(--accent); color: var(--accent-ink); }
+.jump-label {
+  margin: 0 0 0.6rem;
+  font-family: var(--font-mono); font-size: var(--micro);
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--fg-mute);
+  flex-basis: 100%;
+}
 
 /* ---------- sections ---------- */
 
@@ -358,16 +386,25 @@ footer b { color: var(--fg); font-weight: 500; }
 /* Section rules are perforations, not lines. */
 section { border-top: 1px dashed var(--line); }
 
-/* The terminal is a slip of paper: torn along the bottom edge. */
+/* The terminal is a slip of paper, torn along the bottom edge.
+
+   Drawn as paper-coloured notches punched INTO the dark block, not as dark teeth
+   hanging below it. Two earlier attempts failed for two different reasons and
+   both are worth knowing: teeth built from overlapping `transparent 50%` linear
+   gradients show the element's own --term-bg through the transparent half, so the
+   edge renders dead straight; and moving them outside the box with `top: 100%`
+   puts them where `overflow: hidden` clips them off entirely. An inline SVG
+   triangle painted inside the box has neither problem, and the geometry is
+   explicit rather than inferred from two gradient stops. */
 .term, .install, pre.block { border-radius: 8px 8px 0 0; position: relative; }
+.term pre, .install pre { padding-bottom: 1.9rem; }
+pre.block { padding-bottom: 1.9rem; }
 .term::after, .install::after, pre.block::after {
   content: "";
-  display: block;
-  height: 8px;
-  background:
-    linear-gradient(-45deg, transparent 50%, var(--term-bg) 50%) 0 0 / 12px 8px repeat-x,
-    linear-gradient( 45deg, transparent 50%, var(--term-bg) 50%) 0 0 / 12px 8px repeat-x;
-  transform: translateY(-1px);
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 9px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M0 0 L7 9 L14 0 Z' fill='%23fbf7f0'/%3E%3C/svg%3E") repeat-x bottom left / 14px 9px;
 }
 
 /* Cards read as line items: dashed leader, verdict hard right. */
@@ -453,19 +490,22 @@ th { border-bottom: 2px solid var(--rule); }
     </div>
     <div class="cta-row">
       <a class="btn primary" href="#install">Install</a>
-      <a class="btn ghost" href="#registry">Prove a published version</a>
-      <a class="btn ghost" href="#workspaces">Monorepos</a>
-      <a class="btn ghost" href="#shipped">Leaked files</a>
-      <a class="btn ghost" href="#diff">What stopped shipping</a>
-      <a class="btn ghost" href="#engines">The Node you promised</a>
-      <a class="btn ghost" href="#peers">Peers</a>
-      <a class="btn ghost" href="#hoisting">Hoisting</a>
-      <a class="btn ghost" href="#lanes">Run less of it</a>
-      <a class="btn ghost" href="#config">Say it once</a>
-      <a class="btn ghost" href="#worth">What a check is worth</a>
-      <a class="btn ghost" href="#ci">Run it in CI</a>
       <a class="btn ghost" href="https://github.com/flossypurse-studios/packproof">View on GitHub →</a>
     </div>
+    <nav class="jump" aria-label="Jump to a section">
+      <p class="jump-label">On this page</p>
+      <a href="#registry">Prove a published version</a>
+      <a href="#workspaces">Monorepos</a>
+      <a href="#shipped">Leaked files</a>
+      <a href="#diff">What stopped shipping</a>
+      <a href="#engines">The Node you promised</a>
+      <a href="#peers">Peers</a>
+      <a href="#hoisting">Hoisting</a>
+      <a href="#lanes">Run less of it</a>
+      <a href="#config">Say it once</a>
+      <a href="#worth">What a check is worth</a>
+      <a href="#ci">Run it in CI</a>
+    </nav>
     <div class="term">
       <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
 <pre><span class="c-muted">$</span> <span class="c-cmd">npx packproof</span>
