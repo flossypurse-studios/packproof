@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="FlossyPurse Studios">
+  <title>FlossyPurse Studios</title>
+  <!-- Small-size cut. One plate, no mask or clip, one path — maximum renderer
+       compatibility. Optical adjustments for 16-32px, all deliberate:
+         · a 6px round stroke fattens the silhouette so the tail survives
+         · the eye grows to r=7 so it does not disappear into a single pixel
+       Keep the silhouette in sync with mark.svg by hand. -->
+  <path fill="#FF4D3D" stroke="#FF4D3D" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"
+        fill-rule="evenodd" transform="translate(-5 -1) rotate(-34 65 64)"
+        d="M112 64 C100 38 66 36 44 55 L23 37 L17 44 L36 64 L17 84 L23 91 L44 73 C66 94 100 92 112 64 Z
+           M96 57 A7 7 0 1 1 82 57 A7 7 0 1 1 96 57 Z"/>
+</svg>
