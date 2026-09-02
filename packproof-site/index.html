@@ -728,11 +728,11 @@ steps:
   <div class="table-scroll">
   <table>
     <tr><th>With the peers absent</th><th>Verdict</th></tr>
-    <tr><td>everything still imports</td><td class="desc"><span class="verdict pass">pass</span>nothing to say</td></tr>
-    <tr><td>an entry needs a <strong>required</strong> peer</td><td class="desc"><span class="verdict pass">pass</span>with a note naming what the consumer has to install</td></tr>
-    <tr><td>an entry needs an <strong>optional</strong> peer</td><td class="desc"><span class="verdict fail">fail</span><code>optional-peer-required</code></td></tr>
-    <tr><td>an entry needs something nobody declared as a peer</td><td class="desc"><span class="verdict pass">pass</span>with a note — <code>--legacy-peer-deps</code> drops your <em>dependencies'</em> peers too, and those aren't your promise</td></tr>
-    <tr><td>the peer-free room won't install</td><td class="desc"><span class="verdict pass">pass</span>saying plainly that nothing was tested</td></tr>
+    <tr><td>everything still imports</td><td class="desc">pass, nothing to say</td></tr>
+    <tr><td>an entry needs a <strong>required</strong> peer</td><td class="desc">pass, with a note naming what the consumer has to install</td></tr>
+    <tr><td>an entry needs an <strong>optional</strong> peer</td><td class="desc"><strong>fail</strong> — <code>optional-peer-required</code></td></tr>
+    <tr><td>an entry needs something nobody declared as a peer</td><td class="desc">pass, with a note — <code>--legacy-peer-deps</code> drops your <em>dependencies'</em> peers too, and those aren't your promise</td></tr>
+    <tr><td>the peer-free room won't install</td><td class="desc">pass, saying plainly that nothing was tested</td></tr>
   </table>
   </div>
   <p class="muted" style="margin-top:16px">No <code>peerDependencies</code>, no second install: the common case pays one line of report and no time at all.</p>
@@ -759,12 +759,12 @@ steps:
   <div class="table-scroll">
   <table>
     <tr><th>Without hoisting</th><th>Verdict</th></tr>
-    <tr><td>everything still imports</td><td class="desc"><span class="verdict pass">pass</span>nothing to say</td></tr>
-    <tr><td>an entry needs a package <strong>no manifest of yours declares</strong></td><td class="desc"><span class="verdict fail">fail</span><code>phantom-dependency</code></td></tr>
-    <tr><td>an entry needs a package you <strong>do</strong> declare (dependency, peer, optional, bundled)</td><td class="desc"><span class="verdict pass">pass</span>with a note — a nested layout is unusual, and that's npm's business, not your manifest's</td></tr>
-    <tr><td>the failure can't be attributed to a missing package</td><td class="desc"><span class="verdict pass">pass</span>with a note and the stderr</td></tr>
-    <tr><td>the non-hoisted room won't install</td><td class="desc"><span class="verdict pass">pass</span>saying plainly that nothing was tested</td></tr>
-    <tr><td>npm older than 9 — no <code>--install-strategy</code></td><td class="desc"><span class="verdict pass">pass</span>naming the npm it found and claiming nothing</td></tr>
+    <tr><td>everything still imports</td><td class="desc">pass, nothing to say</td></tr>
+    <tr><td>an entry needs a package <strong>no manifest of yours declares</strong></td><td class="desc"><strong>fail</strong> — <code>phantom-dependency</code></td></tr>
+    <tr><td>an entry needs a package you <strong>do</strong> declare (dependency, peer, optional, bundled)</td><td class="desc">pass, with a note — a nested layout is unusual, and that's npm's business, not your manifest's</td></tr>
+    <tr><td>the failure can't be attributed to a missing package</td><td class="desc">pass, with a note and the stderr</td></tr>
+    <tr><td>the non-hoisted room won't install</td><td class="desc">pass, saying plainly that nothing was tested</td></tr>
+    <tr><td>npm older than 9 — no <code>--install-strategy</code></td><td class="desc">pass, naming the npm it found and claiming nothing</td></tr>
   </table>
   </div>
   <p class="muted" style="margin-top:16px">No <code>dependencies</code>, no hoisting surface, no second install: a zero-dependency package pays one line of report and no time at all.</p>
