@@ -1,0 +1,33 @@
+name: publish
+
+# Publishes to npm with provenance attestation (SLSA-style build → source binding).
+# Requires an NPM_TOKEN repo secret (an npm automation token with publish rights)
+# unless/until this package is registered for npm Trusted Publishing, in which case
+# the id-token permission alone is enough and NPM_TOKEN can be dropped.
+#
+# Trigger: push a tag matching v* (e.g. `git tag v0.16.1 && git push origin v0.16.1`),
+# or run manually via workflow_dispatch.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - run: npm test
+      - run: npx packproof
+      - run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
