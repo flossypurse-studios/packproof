@@ -13,7 +13,10 @@ name: publish
 # Until that exists this workflow runs and fails at the publish step. It cannot
 # publish anything by accident.
 #
-# Node 22 / npm >= 11.5.1 is a hard requirement of trusted publishing.
+# Node 24 + an explicit npm upgrade: trusted publishing needs npm >= 11.5.1 for OIDC
+# AUTH. Node 22 ships npm 10.x, which signs provenance fine and then falls back to
+# token auth on the upload itself, which the registry reports as a confusing E404.
+# Provenance is automatic under trusted publishing, so no --provenance flag.
 #
 # Trigger: push a tag matching v* (e.g. `git tag v0.16.1 && git push origin v0.16.1`),
 # or run manually via workflow_dispatch.
@@ -34,8 +37,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm test
       - run: npx packproof
-      - run: npm publish --provenance
+      - run: npm install -g npm@latest
+      - run: npm publish
