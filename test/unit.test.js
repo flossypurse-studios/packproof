@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { entrySpecifiers, classifyLoadFailure, firstLines, checkBins } from '../src/checks.js';
+import {
+  entrySpecifiers,
+  classifyLoadFailure,
+  missingSpecifier,
+  firstLines,
+  checkBins,
+} from '../src/checks.js';
 import { packageNameOf, codeOnly, scanSource } from '../src/lazy.js';
 
 test('entrySpecifiers: main only', () => {
@@ -94,6 +100,18 @@ test('classify: a runtime ENOENT is a missing file too', () => {
 test('classify: anything else is load-error', () => {
   const c = classifyLoadFailure('TypeError: x is not a function', {});
   assert.equal(c.kind, 'load-error');
+});
+
+test('missingSpecifier: a bare MODULE_NOT_FOUND with no quoted path is still recognised, as empty', () => {
+  assert.equal(missingSpecifier('Error [ERR_MODULE_NOT_FOUND]: something failed to resolve'), '');
+  assert.equal(missingSpecifier('MODULE_NOT_FOUND: require stack: ...'), '');
+});
+
+test('classify: a bare MODULE_NOT_FOUND with no quoted path is missing-file, not the generic load-error', () => {
+  const c = classifyLoadFailure('Error [ERR_MODULE_NOT_FOUND]: something failed to resolve', {});
+  assert.equal(c.kind, 'missing-file');
+  assert.equal(c.missing, null);
+  assert.match(c.hint, /did not ship in the tarball/);
 });
 
 test('firstLines prefers the real error over node internals', () => {
@@ -195,6 +213,21 @@ test('a bin that exits zero passes identically with and without --strict', () =>
   try {
     assert.deepEqual(checkBins(room, MANIFEST, { strict: true }), checkBins(room, MANIFEST));
     assert.equal(checkBins(room, MANIFEST, { strict: true })[0].pass, true);
+  } finally {
+    rmSync(room.dir, { recursive: true, force: true });
+  }
+});
+
+test('a bin excluded from the tarball is reported bin-missing, not a silent pass', () => {
+  // No node_modules/.bin/toolish at all — the bin target never shipped, so
+  // node_modules/.bin/<name> was never created and spawnSync fails ENOENT.
+  const dir = mkdtempSync(join(tmpdir(), 'packproof-nobin-'));
+  const room = { dir };
+  try {
+    const [r] = checkBins(room, MANIFEST);
+    assert.equal(r.pass, false);
+    assert.equal(r.kind, 'bin-missing');
+    assert.match(r.hint, /node_modules\/\.bin\/toolish was not created/);
   } finally {
     rmSync(room.dir, { recursive: true, force: true });
   }

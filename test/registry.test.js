@@ -132,6 +132,27 @@ test('verifyIntegrity: nothing to check against is reported, not treated as a pa
   assert.equal(v.algorithm, null);
 });
 
+test('verifyIntegrity: an unrecognised algorithm entry is skipped in favor of a later real one', () => {
+  const buf = Buffer.from('some tarball bytes');
+  const real = 'sha512-' + createHash('sha512').update(buf).digest('base64');
+  const integrity = `bogus9000-AAAA ${real}`;
+  const v = verifyIntegrity(buf, { integrity, shasum: null });
+  assert.equal(v.ok, true);
+  assert.equal(v.algorithm, 'sha512');
+  assert.equal(v.expected, real.slice('sha512-'.length));
+});
+
+test('verifyIntegrity: an unrecognised algorithm entry does not mask corrupted bytes', () => {
+  const good = Buffer.from('a');
+  const bad = Buffer.from('b');
+  const real = 'sha512-' + createHash('sha512').update(good).digest('base64');
+  const integrity = `bogus9000-AAAA ${real}`;
+  const v = verifyIntegrity(bad, { integrity, shasum: null });
+  assert.equal(v.ok, false);
+  assert.equal(v.algorithm, 'sha512');
+  assert.ok(v.expected && v.actual && v.expected !== v.actual);
+});
+
 test('manifestFromTarball reads the published package.json out of the bytes', { timeout: TIMEOUT }, () => {
   const { tarball } = makeTarball(fixture('good-esm'));
   const m = manifestFromTarball(tarball);
