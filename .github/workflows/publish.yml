@@ -18,6 +18,11 @@ name: publish
 # token auth on the upload itself, which the registry reports as a confusing E404.
 # Provenance is automatic under trusted publishing, so no --provenance flag.
 #
+# Pinned on purpose: this job holds id-token: write, so whatever it runs can publish
+# as this package. The actions are pinned to commit SHAs and npm to an exact version
+# (was npm@latest), so a moved tag or a bad npm release cannot ride along. Bump them
+# deliberately.
+#
 # Trigger: push a tag matching v* (e.g. `git tag v0.16.1 && git push origin v0.16.1`),
 # or run manually via workflow_dispatch.
 
@@ -34,12 +39,12 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm test
       - run: npx packproof
-      - run: npm install -g npm@latest
+      - run: npm install -g npm@11.21.1
       - run: npm publish
