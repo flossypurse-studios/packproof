@@ -1,5 +1,5 @@
-// A package.json that says `"engines": { "node": ">=18" }` is a promise, and
-// nothing in the npm toolchain ever checks it. `npm install` prints a warning at
+// A package.json that says `"engines": { "node": ">=18" }` is a promise.
+// `npm install` prints a warning at
 // most; your CI runs one Node version, usually the newest; and the first person
 // to find out that your "Node 18 supported" package uses a Node 20 builtin is a
 // stranger on Node 18.
