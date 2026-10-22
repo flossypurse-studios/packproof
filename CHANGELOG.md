@@ -177,8 +177,8 @@ any other. A run with neither flag is byte-identical to 0.10.0.
 
 ## 0.10.0 — 2026-08-15
 
-**The Node version you promised.** `engines.node` is a claim nothing in the npm toolchain
-verifies. If the manifest declares one, packproof now finds every Node installed on the
+**The Node version you promised.** `engines.node` is a claim. If the manifest declares
+one, packproof now finds every Node installed on the
 machine — the one it is running as, plus nvm, fnm, n, volta and asdf version directories —
 picks the **oldest** one the range accepts, and imports every entry point again under it.
 A package that does not load on a Node it says it supports fails as `engines-unsatisfied`,

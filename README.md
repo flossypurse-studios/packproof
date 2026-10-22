@@ -811,9 +811,10 @@ excellent, fast, needs no install, and it will tell you about whole categories o
 correctness that packproof never looks at.
 
 **packproof** doesn't read your manifest for opinions. It installs your package and runs
-it. That catches the class of bug static analysis structurally cannot see: whether the
-code, at runtime, reaches for something that isn't there. A devDependency imported three
-files deep behind a conditional isn't a manifest problem — it's a fact about execution.
+it. That's a different kind of check: it runs the installed code rather than reading it,
+so it can tell whether the code, at runtime, reaches for something that isn't there. A
+devDependency imported three files deep behind a conditional isn't a manifest problem —
+it's a fact about execution.
 
 Rough division of labour: publint answers *"is this package declared correctly?"*;
 packproof answers *"does this package work once installed?"* [**attw**](https://github.com/arethetypeswrong/arethetypeswrong.github.io)
