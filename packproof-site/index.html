@@ -693,7 +693,7 @@ packproof --registry pkg@2.0.0 --diff 1.9.0   <span class="c-comment"># two publ
 
 <section id="engines">
   <h2>The Node <span style="color:var(--fg-mute)">you promised</span></h2>
-  <p><code class="inline-code">"engines": { "node": "&gt;=18" }</code> is a promise, and nothing in the npm toolchain keeps it. <code>npm install</code> prints a warning at worst; your CI runs one Node, usually the newest; and the first person to find out that your "Node 18 and up" package uses a Node 20 builtin is a stranger on Node 18.</p>
+  <p><code class="inline-code">"engines": { "node": "&gt;=18" }</code> is a promise. <code>npm install</code> prints a warning at worst; your CI runs one Node, usually the newest; and the first person to find out that your "Node 18 and up" package uses a Node 20 builtin is a stranger on Node 18.</p>
   <p>No flag needed. If the manifest declares <code>engines.node</code>, packproof finds every Node on the machine — the one it's running as, plus nvm, fnm, n, volta and asdf version directories — picks the <strong>oldest</strong> one the range accepts, and imports every entry point again under it.</p>
   <div class="term">
     <div class="bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
@@ -1067,9 +1067,9 @@ npm i -D packproof</pre>
   <h2>packproof vs publint</h2>
   <p>Use both. They do different things and neither subsumes the other.</p>
   <p><a href="https://publint.dev">publint</a> statically lints your published manifest: module formats, <code class="inline-code">exports</code> correctness, file extensions, shebangs, deprecated fields. It's excellent, fast, needs no install, and it covers whole categories of correctness packproof never looks at.</p>
-  <p>packproof doesn't read your manifest for opinions. It installs your package and runs it — which catches the class of bug static analysis structurally cannot see: whether the code, at runtime, reaches for something that isn't there. A devDependency imported three files deep behind a conditional isn't a manifest problem. It's a fact about execution.</p>
-  <p class="muted">publint answers <em>"is this package declared correctly?"</em> packproof answers <em>"does this package work once installed?"</em> Run <code class="inline-code">publint &amp;&amp; packproof</code>.</p>
-  <p>And there's one gap neither of those closes on its own: a devDependency <code class="inline-code">require()</code>d only inside a function body passes <code class="inline-code">npm pack</code>, passes <code class="inline-code">npm install</code>, passes publint, and passes packproof's own execution checks — no probe ever runs that line, so no probe can notice. <code class="inline-code">packproof --lazy</code> reads the shipped source and catches it.</p>
+  <p>packproof doesn't read your manifest for opinions. It installs your package and runs it — a different kind of check: it runs the installed code rather than reading it, so it can tell whether the code, at runtime, reaches for something that isn't there. A devDependency imported three files deep behind a conditional isn't a manifest problem. It's a fact about execution.</p>
+  <p class="muted">publint answers <em>"is this package declared correctly?"</em> packproof answers <em>"does this package work once installed?"</em> <a href="https://github.com/arethetypeswrong/arethetypeswrong.github.io">attw</a> answers a third question — do the published types resolve the way consumers expect? Run <code class="inline-code">publint &amp;&amp; attw &amp;&amp; packproof</code>.</p>
+  <p>Neither of those catches this on its own: a devDependency <code class="inline-code">require()</code>d only inside a function body passes <code class="inline-code">npm pack</code>, passes <code class="inline-code">npm install</code>, passes publint, and passes packproof's own execution checks — no execution-based probe ever runs that line. Static analysis tools such as <a href="https://github.com/webpro-nl/knip">knip</a> flag this too; <code class="inline-code">packproof --lazy</code> is packproof's own static pass over the shipped source, run as part of the same clean-room check.</p>
 </section>
 
 <section id="limits">

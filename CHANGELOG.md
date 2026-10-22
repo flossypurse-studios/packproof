@@ -4,6 +4,14 @@ Every release of packproof, newest first. Dates are the day the version went to 
 packproof is pre-1.0: the CLI's output is meant to be read by people and by CI, and while
 no release so far has removed a flag, new checks do add lines to a report.
 
+## 0.16.2 — 2026-10-22
+
+Docs only, no behavior change. Reworded two overclaims: the `engines.node` check and
+`--lazy` are described by what they do, not by a claim that nothing else does it — static
+tools such as knip already flag the same `--lazy` gap. Replaced every link to
+packproof-site.vercel.app with the custom domain packproof.dev (README, package.json
+`homepage`). Added `attw` to the recommended prepublish combo alongside publint.
+
 ## 0.16.0 — 2026-08-27
 
 **The `hoisting` check — the dependency you never declared, and npm hands you anyway.**
@@ -169,8 +177,8 @@ any other. A run with neither flag is byte-identical to 0.10.0.
 
 ## 0.10.0 — 2026-08-15
 
-**The Node version you promised.** `engines.node` is a claim nothing in the npm toolchain
-verifies. If the manifest declares one, packproof now finds every Node installed on the
+**The Node version you promised.** `engines.node` is a claim. If the manifest declares
+one, packproof now finds every Node installed on the
 machine — the one it is running as, plus nvm, fnm, n, volta and asdf version directories —
 picks the **oldest** one the range accepts, and imports every entry point again under it.
 A package that does not load on a Node it says it supports fails as `engines-unsatisfied`,
@@ -246,9 +254,9 @@ and nothing is installed). `--registry-url` points at a different registry.
 
 `--lazy`: read the shipped source for `import`/`require` specifiers hidden inside functions
 and branches that merely loading the package never reaches, and check those are declared
-too. This is the one gap nothing else covers — a devDependency required only inside a
-function body passes `npm pack`, `npm install`, publint and packproof's own execution
-checks, because no probe ever runs that line.
+too. A devDependency required only inside a function body passes `npm pack`, `npm
+install`, publint and packproof's own execution checks, because no probe ever runs that
+line — `--lazy` is packproof's own static pass over the shipped source to catch it.
 
 ## 0.1.1 — 2026-08-10
 

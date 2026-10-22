@@ -2,7 +2,7 @@
 
 **Install your npm package like a stranger would — before they do.**
 
-[Docs & site](https://packproof-site.vercel.app) · [npm](https://www.npmjs.com/package/packproof) · [Changelog](CHANGELOG.md)
+[Docs & site](https://packproof.dev) · [npm](https://www.npmjs.com/package/packproof) · [Changelog](CHANGELOG.md)
 
 ```
 npx packproof
@@ -23,9 +23,9 @@ That downloads the exact tarball the registry serves, checks it against the inte
 the registry published for it, and clean-rooms *those bytes*. No local checkout involved.
 
 If your `package.json` says `"engines": { "node": ">=18" }`, packproof imports the
-package again under the oldest Node on this machine that the range accepts. Nothing else in
-the npm toolchain ever checks that promise. And when there is no such Node installed here,
-it says so on the check line instead of passing quietly:
+package again under the oldest Node on this machine that the range accepts — automatically,
+with no CI matrix to configure. And when there is no such Node installed here, it says so
+on the check line instead of passing quietly:
 
 ```
 ✓ engines.node ">=18" — imported under node v18.20.4, the oldest version this range claims
@@ -334,7 +334,7 @@ unless `--include-private` is given — and it rides along in `--json` as `relea
 
 ### The Node you promised (`engines.node`)
 
-`engines.node` is a promise, and nothing keeps it. `npm install` prints a warning at
+`engines.node` is a promise. `npm install` prints a warning at
 worst, your CI runs one Node — usually the newest — and the first person to discover that
 your "Node 18 and up" package uses a Node 20 builtin is a stranger on Node 18.
 
@@ -765,10 +765,12 @@ only one truth about this and it should not live only in a README nobody has ope
   (`--strict` makes that a `dropped-file` failure).
 - **lazy imports** (`--lazy`) — every `.js`/`.mjs`/`.cjs` file that actually shipped is
   read back out of the clean room and scanned for bare `import`/`require` specifiers,
-  resolved against your declared dependencies. This covers a gap nothing else does: **a
-  devDependency required only inside a function body passes `npm pack`, passes `npm
-  install`, passes publint, and passes packproof's own execution checks** — no probe ever
-  runs that line, so no probe can notice. Only `--lazy` catches it.
+  resolved against your declared dependencies. A devDependency required only inside a
+  function body passes `npm pack`, passes `npm install`, passes publint, and passes
+  packproof's own execution checks — no probe ever runs that line, so no execution-based
+  check can notice. Static analysis tools such as knip flag this too; `--lazy` is
+  packproof's own static pass over the shipped source, run as part of the same clean-room
+  check.
 
 Failures are classified, not just dumped: `undeclared-dependency`, `missing-dependency`,
 `missing-file`, `bin-not-executable`, `bin-missing`, `install-failed`, `load-error`,
@@ -809,13 +811,16 @@ excellent, fast, needs no install, and it will tell you about whole categories o
 correctness that packproof never looks at.
 
 **packproof** doesn't read your manifest for opinions. It installs your package and runs
-it. That catches the class of bug static analysis structurally cannot see: whether the
-code, at runtime, reaches for something that isn't there. A devDependency imported three
-files deep behind a conditional isn't a manifest problem — it's a fact about execution.
+it. That's a different kind of check: it runs the installed code rather than reading it,
+so it can tell whether the code, at runtime, reaches for something that isn't there. A
+devDependency imported three files deep behind a conditional isn't a manifest problem —
+it's a fact about execution.
 
 Rough division of labour: publint answers *"is this package declared correctly?"*;
-packproof answers *"does this package work once installed?"* A sensible prepublish step
-runs `publint && packproof`.
+packproof answers *"does this package work once installed?"* [**attw**](https://github.com/arethetypeswrong/arethetypeswrong.github.io)
+(are the types wrong) answers a third question — do the published type declarations
+actually resolve the way consumers' bundlers and `moduleResolution` settings expect? A
+sensible prepublish step runs `publint && attw && packproof`.
 
 ## Honest limitations
 

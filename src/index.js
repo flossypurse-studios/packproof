@@ -189,9 +189,9 @@ export async function packproof(target = '.', opts = {}) {
     if (runs('entries')) checks.push(...checkEntries(room, manifest));
     if (runs('require')) checks.push(...checkRequire(room, manifest));
     if (runs('bins')) checks.push(...checkBins(room, manifest, { binArgs: opts.binArgs, strict: opts.strict }));
-    // The manifest's Node floor is a promise nothing else in the toolchain keeps.
-    // Re-import under the oldest Node it claims, or say plainly that this machine
-    // has no such Node — a green line that verified nothing would be a lie.
+    // The manifest's Node floor is a promise. Re-import under the oldest Node it
+    // claims, or say plainly that this machine has no such Node — a green line
+    // that verified nothing would be a lie.
     if (runs('engines')) checks.push(...checkEngines(room, manifest, { nodes: opts.nodes }));
     // A peer is the consumer's half of the bargain, and npm 7+ quietly keeps it
     // for them here. Only a second, peer-free room can say whether the manifest
