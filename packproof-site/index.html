@@ -439,7 +439,24 @@ table { font-variant-numeric: tabular-nums; }
 th, td { border-bottom: 1px dashed var(--line); }
 th { border-bottom: 2px solid var(--rule); }
 </style>
-<script defer src="https://analytics.flossypurse.studio/script.js" data-website-id="b439b579-b2e3-40b9-a444-6227b3be7a2e" data-domains="packproof.dev" data-exclude-search="true" data-exclude-hash="true" data-do-not-track="true"></script>
+<script>
+window.flossyKeepUtm = function (type, payload) {
+  try {
+    var allow = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+    var u = new URL(payload.url, location.origin);
+    var kept = new URLSearchParams();
+    u.searchParams.forEach(function (v, k) {
+      if (allow.indexOf(k) !== -1) kept.append(k, v);
+    });
+    var qs = kept.toString();
+    payload.url = u.pathname + (qs ? '?' + qs : '');
+  } catch (e) {
+    try { payload.url = new URL(payload.url, location.origin).pathname; } catch (e2) {}
+  }
+  return payload;
+};
+</script>
+<script defer src="https://analytics.flossypurse.studio/script.js" data-website-id="b439b579-b2e3-40b9-a444-6227b3be7a2e" data-domains="packproof.dev" data-before-send="flossyKeepUtm" data-exclude-hash="true" data-do-not-track="true"></script>
 </head>
 <body>
 <header class="site-head">
