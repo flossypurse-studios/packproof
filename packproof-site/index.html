@@ -451,7 +451,16 @@ window.flossyKeepUtm = function (type, payload) {
     var qs = kept.toString();
     payload.url = u.pathname + (qs ? '?' + qs : '');
   } catch (e) {
-    try { payload.url = new URL(payload.url, location.origin).pathname; } catch (e2) {}
+    try { payload.url = new URL(payload.url, location.origin).pathname; } catch (e2) { return false; }
+  }
+  // The referrer is the previous page, query and all: keep only where it was.
+  try {
+    if (payload.referrer) {
+      var r = new URL(payload.referrer, location.origin);
+      payload.referrer = r.origin === location.origin ? r.pathname : r.origin + r.pathname;
+    }
+  } catch (e) {
+    payload.referrer = '';
   }
   return payload;
 };
